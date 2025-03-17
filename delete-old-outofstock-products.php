@@ -1,69 +1,46 @@
+//========================================//
+// 3. PLUGIN INITIALIZATION              //
+//========================================//
+
 /**
-     * Check if an attachment is used by other posts/products
-     *
-     * @param int $attachment_id The attachment ID to check
-     * @param int $excluded_product_id The product ID to exclude from the check
-     * @return bool
-     */
-    private function is_attachment_used_elsewhere( $attachment_id, $excluded_product_id ) {
-        global $wpdb;
-        
-        // Check if the attachment is used as featured image for other posts
-        $query = $wpdb->prepare(
-            "SELECT COUNT(meta_id) FROM $wpdb->postmeta 
-            WHERE meta_key = '_thumbnail_id' 
-            AND meta_value = %d 
-            AND post_id != %d",
-            $attachment_id,
-            $excluded_product_id
-        );
-        
-        $count = $wpdb->get_var( $query );
-        
-        if ( $count > 0 ) {
-            return true;
-        }
-        
-        // Check if attachment is used in product galleries
-        $query = $wpdb->prepare(
-            "SELECT COUNT(meta_id) FROM $wpdb->postmeta 
-            WHERE meta_key = '_product_image_gallery' 
-            AND meta_value LIKE %s 
-            AND post_id != %d",
-            '%' . $wpdb->esc_like( $attachment_id ) . '%',
-            $excluded_product_id
-        );
-        
-        $count = $wpdb->get_var( $query );
-        
-        if ( $count > 0 ) {
-            return true;
-        }
-        
-        // Check for usage in post content
-        $attachment_url = wp_get_attachment_url( $attachment_id );
-        
-        if ( $attachment_url ) {
-            $attachment_url_parts = explode( '/', $attachment_url );
-            $attachment_file = end( $attachment_url_parts );
-            
-            $query = $wpdb->prepare(
-                "SELECT COUNT(ID) FROM $wpdb->posts 
-                WHERE post_content LIKE %s 
-                AND ID != %d",
-                '%' . $wpdb->esc_like( $attachment_file ) . '%',
-                $excluded_product_id
-            );
-            
-            $count = $wpdb->get_var( $query );
-            
-            if ( $count > 0 ) {
-                return true;
-            }
-        }
-        
-        return false;
-    }<?php
+ * Check if WooCommerce is active
+ * 
+ * @return bool True if WooCommerce is active
+ */
+function oh_doop_is_woocommerce_active() {
+    return class_exists( 'WooCommerce' );
+}
+
+/**
+ * Display admin notice if WooCommerce is not active
+ */
+function oh_doop_admin_notice() {
+    ?>
+    <div class="notice notice-warning is-dismissible">
+        <p><?php esc_html_e( 'Delete Old Out-of-Stock Products requires WooCommerce to be installed and activated.', 'delete-old-outofstock-products' ); ?></p>
+    </div>
+    <?php
+}
+
+/**
+ * Initialize the plugin
+ */
+function oh_doop_init() {
+    // Check if WooCommerce is active
+    if ( ! oh_doop_is_woocommerce_active() ) {
+        add_action( 'admin_notices', 'oh_doop_admin_notice' );
+        return;
+    }
+    
+    // Initialize the plugin
+    OH_Delete_Old_Outofstock_Products::get_instance();
+}
+add_action( 'plugins_loaded', 'oh_doop_init' );
+
+// AJAX handlers
+add_action( 'wp_ajax_oh_doop_get_eligible_count', array( 'OH_Delete_Old_Outofstock_Products', 'ajax_get_eligible_count_static' ) );
+add_action( 'wp_ajax_oh_run_product_deletion', array( 'OH_Delete_Old_Outofstock_Products', 'ajax_run_deletion_static' ) );
+<?php
 /**
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
@@ -88,8 +65,9 @@
  *   2.2 Class Initialization
  *   2.3 Core Setup
  *   2.4 Admin Interface
- *   2.5 Product Deletion Logic
- *   2.6 Attachment Handling Helpers
+ *   2.5 AJAX Handlers
+ *   2.6 Product Deletion Logic
+ *   2.7 Attachment Handling Helpers
  *
  * 3. PLUGIN INITIALIZATION
  */
@@ -177,10 +155,6 @@ class OH_Delete_Old_Outofstock_Products {
         
         // Add admin scripts and styles
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_scripts' ) );
-        
-        // AJAX handlers
-        add_action( 'wp_ajax_oh_doop_get_eligible_count', array( $this, 'ajax_get_eligible_count' ) );
-        add_action( 'wp_ajax_oh_run_product_deletion', array( $this, 'ajax_run_deletion' ) );
         
         // Admin post handler for non-JS fallback
         add_action( 'admin_post_oh_run_product_deletion', array( $this, 'handle_manual_run' ) );
@@ -337,6 +311,7 @@ class OH_Delete_Old_Outofstock_Products {
                 var totalProducts = 0;
                 var deletedProducts = 0;
                 var isRunning = false;
+                var ohDoopTaskId = "";
                 
                 $("#oh-doop-run-form").on("submit", function(e) {
                     e.preventDefault();
@@ -364,11 +339,12 @@ class OH_Delete_Old_Outofstock_Products {
                             },
                             success: function(response) {
                                 if (response.success && response.data) {
+                                    console.log("Got eligible count:", response.data);
                                     totalProducts = parseInt(response.data.count);
                                     deletedProducts = 0;
                                     
                                     // Set initial progress
-                                    updateProgressBar(1); // Start with 1% to show movement
+                                    updateProgressBar(5); // Start with 5% to show movement
                                     
                                     // Update progress bar
                                     $progressStatus.find(".oh-doop-progress-info").text(
@@ -379,10 +355,12 @@ class OH_Delete_Old_Outofstock_Products {
                                     // Start the deletion process
                                     startDeletion();
                                 } else {
+                                    console.error("Error getting count:", response);
                                     handleError(response.data ? response.data.message : ohDoopSettings.strings.error);
                                 }
                             },
-                            error: function() {
+                            error: function(xhr, status, error) {
+                                console.error("AJAX Error:", xhr, status, error);
                                 handleError(ohDoopSettings.strings.error);
                             }
                         });
@@ -624,6 +602,281 @@ class OH_Delete_Old_Outofstock_Products {
                 ),
             ),
         ) );
+        
+        $eligible_count = $eligible_query->found_posts;
+        
+        wp_send_json_success( array( 'count' => $eligible_count ) );
+    }
+    
+    /**
+     * Run product deletion via AJAX
+     */
+    public function ajax_run_deletion() {
+        // Check nonce for security
+        if ( ! isset( $_POST['nonce'] ) && ! isset( $_POST['oh_nonce'] ) ) {
+            wp_send_json_error( array( 'message' => __( 'Security check failed.', 'delete-old-outofstock-products' ) ) );
+        }
+        
+        $nonce = isset( $_POST['nonce'] ) ? $_POST['nonce'] : $_POST['oh_nonce'];
+        $nonce_action = isset( $_POST['nonce'] ) ? 'oh_doop_ajax_nonce' : 'oh_run_product_deletion_nonce';
+        
+        if ( ! wp_verify_nonce( $nonce, $nonce_action ) ) {
+            wp_send_json_error( array( 'message' => __( 'Security check failed.', 'delete-old-outofstock-products' ) ) );
+        }
+        
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => __( 'You do not have permission to do this.', 'delete-old-outofstock-products' ) ) );
+        }
+        
+        // Run the deletion process
+        $deleted = $this->delete_old_out_of_stock_products();
+        
+        wp_send_json_success( array(
+            'status' => 'completed',
+            'deleted' => $deleted,
+            'message' => sprintf(
+                /* translators: %d: number of products deleted */
+                __( 'Product cleanup completed. %d products were deleted.', 'delete-old-outofstock-products' ),
+                $deleted
+            )
+        ) );
+    }
+    
+    /**
+     * Handle manual run of the product deletion process (non-JS fallback)
+     */
+    public function handle_manual_run() {
+        // Check nonce for security
+        if ( 
+            ! isset( $_POST['oh_nonce'] ) || 
+            ! wp_verify_nonce( $_POST['oh_nonce'], 'oh_run_product_deletion_nonce' ) || 
+            ! current_user_can( 'manage_options' )
+        ) {
+            wp_die( esc_html__( 'Security check failed. Please try again.', 'delete-old-outofstock-products' ) );
+        }
+        
+        // Run the deletion process
+        $deleted = $this->delete_old_out_of_stock_products();
+        
+        // Redirect back to the settings page with a success message
+        wp_safe_redirect( add_query_arg( 'deleted', $deleted, admin_url( 'admin.php?page=doop-settings' ) ) );
+        exit;
+    }
+    
+    /**
+     * Static method for AJAX get eligible count handler
+     */
+    public static function ajax_get_eligible_count_static() {
+        $instance = self::get_instance();
+        $instance->ajax_get_eligible_count();
+    }
+    
+    /**
+     * Static method for AJAX run deletion handler
+     */
+    public static function ajax_run_deletion_static() {
+        $instance = self::get_instance();
+        $instance->ajax_run_deletion();
+    }
+
+    //----------------------------------------//
+    // 2.6 Product Deletion Logic
+    //----------------------------------------//
+    
+    /**
+     * Delete out-of-stock WooCommerce products older than the configured age, including images.
+     * 
+     * @return int Number of products deleted
+     */
+    public function delete_old_out_of_stock_products() {
+        if ( ! class_exists( 'WooCommerce' ) ) {
+            return 0;
+        }
+
+        // Get options
+        $options = get_option( DOOP_OPTIONS_KEY, array(
+            'product_age' => 18,
+            'delete_images' => 'yes',
+        ) );
+
+        $product_age = isset( $options['product_age'] ) ? absint( $options['product_age'] ) : 18;
+        $delete_images = isset( $options['delete_images'] ) ? $options['delete_images'] : 'yes';
+
+        $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
+
+        // Process in smaller batches to reduce memory usage
+        $batch_size = 50;
+        $offset = 0;
+        $deleted = 0;
+        
+        do {
+            $products = get_posts( array(
+                'post_type'      => 'product',
+                'post_status'    => 'publish',
+                'posts_per_page' => $batch_size,
+                'offset'         => $offset,
+                'date_query'     => array(
+                    array(
+                        'before' => $date_threshold,
+                    ),
+                ),
+                'meta_query'     => array(
+                    array(
+                        'key'   => '_stock_status',
+                        'value' => 'outofstock',
+                    ),
+                ),
+                'fields' => 'ids',
+            ) );
+            
+            if ( empty( $products ) ) {
+                break;
+            }
+            
+            foreach ( $products as $product_id ) {
+                $product = wc_get_product( $product_id );
+
+                if ( ! $product ) {
+                    continue;
+                }
+
+                // Process product images if enabled
+                if ( 'yes' === $delete_images ) {
+                    $attachment_ids = array();
+
+                    // Featured image
+                    $featured_image_id = $product->get_image_id();
+                    if ( $featured_image_id ) {
+                        $attachment_ids[] = $featured_image_id;
+                    }
+
+                    // Gallery images
+                    $attachment_ids = array_merge( $attachment_ids, $product->get_gallery_image_ids() );
+
+                    foreach ( $attachment_ids as $attachment_id ) {
+                        if ( $attachment_id ) {
+                            // Skip placeholder images
+                            $attachment_url = wp_get_attachment_url( $attachment_id );
+                            if ( $attachment_url && $this->is_placeholder_image( $attachment_url ) ) {
+                                continue;
+                            }
+                            
+                            // Check if the image is used by other products or posts
+                            if ( $this->is_attachment_used_elsewhere( $attachment_id, $product_id ) ) {
+                                continue;
+                            }
+                            
+                            // Delete the attachment
+                            wp_delete_attachment( $attachment_id, true );
+                        }
+                    }
+                }
+
+                // Delete the product
+                wp_delete_post( $product_id, true );
+                $deleted++;
+            }
+            
+            $offset += $batch_size;
+            
+            // Free up memory
+            wp_cache_flush();
+            
+        } while ( count( $products ) === $batch_size );
+        
+        return $deleted;
+    }
+
+    //----------------------------------------//
+    // 2.7 Attachment Handling Helpers
+    //----------------------------------------//
+    
+    /**
+     * Check if the given URL is a placeholder image
+     *
+     * @param string $url The image URL to check
+     * @return bool
+     */
+    private function is_placeholder_image( $url ) {
+        // Check if URL contains 'woocommerce-placeholder'
+        if ( false !== strpos( $url, 'woocommerce-placeholder' ) ) {
+            return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Check if an attachment is used by other posts/products
+     *
+     * @param int $attachment_id The attachment ID to check
+     * @param int $excluded_product_id The product ID to exclude from the check
+     * @return bool
+     */
+    private function is_attachment_used_elsewhere( $attachment_id, $excluded_product_id ) {
+        global $wpdb;
+        
+        // Check if the attachment is used as featured image for other posts
+        $query = $wpdb->prepare(
+            "SELECT COUNT(meta_id) FROM $wpdb->postmeta 
+            WHERE meta_key = '_thumbnail_id' 
+            AND meta_value = %d 
+            AND post_id != %d",
+            $attachment_id,
+            $excluded_product_id
+        );
+        
+        $count = $wpdb->get_var( $query );
+        
+        if ( $count > 0 ) {
+            return true;
+        }
+        
+        // Check if attachment is used in product galleries
+        $query = $wpdb->prepare(
+            "SELECT COUNT(meta_id) FROM $wpdb->postmeta 
+            WHERE meta_key = '_product_image_gallery' 
+            AND meta_value LIKE %s 
+            AND post_id != %d",
+            '%' . $wpdb->esc_like( $attachment_id ) . '%',
+            $excluded_product_id
+        );
+        
+        $count = $wpdb->get_var( $query );
+        
+        if ( $count > 0 ) {
+            return true;
+        }
+        
+        // Check for usage in post content
+        $attachment_url = wp_get_attachment_url( $attachment_id );
+        
+        if ( $attachment_url ) {
+            $attachment_url_parts = explode( '/', $attachment_url );
+            $attachment_file = end( $attachment_url_parts );
+            
+            $query = $wpdb->prepare(
+                "SELECT COUNT(ID) FROM $wpdb->posts 
+                WHERE post_content LIKE %s 
+                AND ID != %d",
+                '%' . $wpdb->esc_like( $attachment_file ) . '%',
+                $excluded_product_id
+            );
+            
+            $count = $wpdb->get_var( $query );
+            
+            if ( $count > 0 ) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+}_status',
+                    'value' => 'outofstock',
+                ),
+            ),
+        ) );
         $out_of_stock_count = $out_of_stock_query->found_posts;
 
         // Get number of old products
@@ -772,6 +1025,10 @@ class OH_Delete_Old_Outofstock_Products {
         <?php
     }
 
+    //----------------------------------------//
+    // 2.5 AJAX Handlers
+    //----------------------------------------//
+    
     /**
      * Get count of eligible products via AJAX
      */
@@ -807,255 +1064,4 @@ class OH_Delete_Old_Outofstock_Products {
             ),
             'meta_query'     => array(
                 array(
-                    'key'   => '_stock_status',
-                    'value' => 'outofstock',
-                ),
-            ),
-        ) );
-        
-        $eligible_count = $eligible_query->found_posts;
-        
-        wp_send_json_success( array( 'count' => $eligible_count ) );
-    }
-    
-    /**
-     * Run product deletion via AJAX
-     */
-    public function ajax_run_deletion() {
-        // Check nonce for security
-        if ( ! isset( $_POST['nonce'] ) && ! isset( $_POST['oh_nonce'] ) ) {
-            wp_send_json_error( array( 'message' => __( 'Security check failed.', 'delete-old-outofstock-products' ) ) );
-        }
-        
-        $nonce = isset( $_POST['nonce'] ) ? $_POST['nonce'] : $_POST['oh_nonce'];
-        $nonce_action = isset( $_POST['nonce'] ) ? 'oh_doop_ajax_nonce' : 'oh_run_product_deletion_nonce';
-        
-        if ( ! wp_verify_nonce( $nonce, $nonce_action ) ) {
-            wp_send_json_error( array( 'message' => __( 'Security check failed.', 'delete-old-outofstock-products' ) ) );
-        }
-        
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( array( 'message' => __( 'You do not have permission to do this.', 'delete-old-outofstock-products' ) ) );
-        }
-        
-        // Run the deletion process
-        $deleted = $this->delete_old_out_of_stock_products();
-        
-        wp_send_json_success( array(
-            'status' => 'completed',
-            'deleted' => $deleted,
-            'message' => sprintf(
-                /* translators: %d: number of products deleted */
-                __( 'Product cleanup completed. %d products were deleted.', 'delete-old-outofstock-products' ),
-                $deleted
-            )
-        ) );
-    }
-    
-    /**
-     * Handle manual run of the product deletion process (non-JS fallback)
-     */
-    public function handle_manual_run() {
-        // Check nonce for security
-        if ( 
-            ! isset( $_POST['oh_nonce'] ) || 
-            ! wp_verify_nonce( $_POST['oh_nonce'], 'oh_run_product_deletion_nonce' ) || 
-            ! current_user_can( 'manage_options' )
-        ) {
-            wp_die( esc_html__( 'Security check failed. Please try again.', 'delete-old-outofstock-products' ) );
-        }
-        
-        // Run the deletion process
-        $deleted = $this->delete_old_out_of_stock_products();
-        
-        // Redirect back to the settings page with a success message
-        wp_safe_redirect( add_query_arg( 'deleted', $deleted, admin_url( 'admin.php?page=doop-settings' ) ) );
-        exit;
-    }
-
-    //----------------------------------------//
-    // 2.5 Product Deletion Logic
-    //----------------------------------------//
-    
-    /**
-     * Delete out-of-stock WooCommerce products older than the configured age, including images.
-     * 
-     * @return int Number of products deleted
-     */
-    public function delete_old_out_of_stock_products() {
-        if ( ! class_exists( 'WooCommerce' ) ) {
-            return 0;
-        }
-
-        // Get options
-        $options = get_option( DOOP_OPTIONS_KEY, array(
-            'product_age' => 18,
-            'delete_images' => 'yes',
-        ) );
-
-        $product_age = isset( $options['product_age'] ) ? absint( $options['product_age'] ) : 18;
-        $delete_images = isset( $options['delete_images'] ) ? $options['delete_images'] : 'yes';
-
-        $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
-
-        // Process in smaller batches to reduce memory usage
-        $batch_size = 50;
-        $offset = 0;
-        $deleted = 0;
-        
-        do {
-            $products = get_posts( array(
-                'post_type'      => 'product',
-                'post_status'    => 'publish',
-                'posts_per_page' => $batch_size,
-                'offset'         => $offset,
-                'date_query'     => array(
-                    array(
-                        'before' => $date_threshold,
-                    ),
-                ),
-                'meta_query'     => array(
-                    array(
-                        'key'   => '_stock_status',
-                        'value' => 'outofstock',
-                    ),
-                ),
-                'fields' => 'ids',
-            ) );
-            
-            if ( empty( $products ) ) {
-                break;
-            }
-            
-            foreach ( $products as $product_id ) {
-                $product = wc_get_product( $product_id );
-
-                if ( ! $product ) {
-                    continue;
-                }
-
-                // Process product images if enabled
-                if ( 'yes' === $delete_images ) {
-                    $attachment_ids = array();
-
-                    // Featured image
-                    $featured_image_id = $product->get_image_id();
-                    if ( $featured_image_id ) {
-                        $attachment_ids[] = $featured_image_id;
-                    }
-
-                    // Gallery images
-                    $attachment_ids = array_merge( $attachment_ids, $product->get_gallery_image_ids() );
-
-                    foreach ( $attachment_ids as $attachment_id ) {
-                        if ( $attachment_id ) {
-                            // Skip placeholder images
-                            $attachment_url = wp_get_attachment_url( $attachment_id );
-                            if ( $attachment_url && $this->is_placeholder_image( $attachment_url ) ) {
-                                continue;
-                            }
-                            
-                            // Check if the image is used by other products or posts
-                            if ( $this->is_attachment_used_elsewhere( $attachment_id, $product_id ) ) {
-                                continue;
-                            }
-                            
-                            // Delete the attachment
-                            wp_delete_attachment( $attachment_id, true );
-                        }
-                    }
-                }
-
-                // Delete the product
-                wp_delete_post( $product_id, true );
-                $deleted++;
-            }
-            
-            $offset += $batch_size;
-            
-            // Free up memory
-            wp_cache_flush();
-            
-        } while ( count( $products ) === $batch_size );
-        
-        return $deleted;
-    }
-
-    //----------------------------------------//
-    // 2.6 Attachment Handling Helpers
-    //----------------------------------------//
-    
-    /**
-     * Static method for AJAX get eligible count handler
-     */
-    public static function ajax_get_eligible_count_static() {
-        $instance = self::get_instance();
-        $instance->ajax_get_eligible_count();
-    }
-    
-    /**
-     * Static method for AJAX run deletion handler
-     */
-    public static function ajax_run_deletion_static() {
-        $instance = self::get_instance();
-        $instance->ajax_run_deletion();
-    }
-    
-    /**
-     * Check if the given URL is a placeholder image
-     *
-     * @param string $url The image URL to check
-     * @return bool
-     */
-    private function is_placeholder_image( $url ) {
-        // Check if URL contains 'woocommerce-placeholder'
-        if ( false !== strpos( $url, 'woocommerce-placeholder' ) ) {
-            return true;
-        }
-        
-        return false;
-    }
-}
-
-//========================================//
-// 3. PLUGIN INITIALIZATION              //
-//========================================//
-
-/**
- * Check if WooCommerce is active
- * 
- * @return bool True if WooCommerce is active
- */
-function oh_doop_is_woocommerce_active() {
-    return class_exists( 'WooCommerce' );
-}
-
-/**
- * Display admin notice if WooCommerce is not active
- */
-function oh_doop_admin_notice() {
-    ?>
-    <div class="notice notice-warning is-dismissible">
-        <p><?php esc_html_e( 'Delete Old Out-of-Stock Products requires WooCommerce to be installed and activated.', 'delete-old-outofstock-products' ); ?></p>
-    </div>
-    <?php
-}
-
-/**
- * Initialize the plugin
- */
-function oh_doop_init() {
-    // Check if WooCommerce is active
-    if ( ! oh_doop_is_woocommerce_active() ) {
-        add_action( 'admin_notices', 'oh_doop_admin_notice' );
-        return;
-    }
-    
-    // Initialize the plugin
-    OH_Delete_Old_Outofstock_Products::get_instance();
-}
-add_action( 'plugins_loaded', 'oh_doop_init' );
-
-// AJAX handlers
-add_action( 'wp_ajax_oh_doop_get_eligible_count', array( 'OH_Delete_Old_Outofstock_Products', 'ajax_get_eligible_count_static' ) );
-add_action( 'wp_ajax_oh_run_product_deletion', array( 'OH_Delete_Old_Outofstock_Products', 'ajax_run_deletion_static' ) );
+                    'key'   => '_stock
