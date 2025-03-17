@@ -3,7 +3,7 @@
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than a configurable time period, including their images.
- * Version:            1.4.0
+ * Version:            1.4.1
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
@@ -40,7 +40,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // 1.2 Constants Definition
-define( 'DOOP_VERSION', '1.4.0' );
+define( 'DOOP_VERSION', '1.4.1' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -298,10 +298,12 @@ class OH_Delete_Old_Outofstock_Products {
                                     totalProducts = parseInt(response.data.count);
                                     deletedProducts = 0;
                                     
+                                    // Set initial progress
+                                    updateProgressBar(1); // Start with 1% to show movement
+                                    
                                     // Update progress bar
                                     $progressStatus.find(".oh-doop-progress-info").text(
                                         ohDoopSettings.strings.processing + " " + 
-                                        ohDoopSettings.strings.analyzing + " " +
                                         totalProducts + " " + ohDoopSettings.strings.products
                                     );
                                     
@@ -346,6 +348,11 @@ class OH_Delete_Old_Outofstock_Products {
                 function startProgressSimulation() {
                     var progress = 0;
                     var increment = totalProducts > 0 ? (5 / totalProducts) * 100 : 5;
+                    // Ensure minimum increment
+                    if (increment < 1) increment = 1;
+                    
+                    // Initial update
+                    updateProgressBar(progress);
                     
                     progressInterval = setInterval(function() {
                         // Don\'t go all the way to 100%
@@ -356,12 +363,9 @@ class OH_Delete_Old_Outofstock_Products {
                             // Update progress bar
                             updateProgressBar(progress);
                             
-                            // Update info text about every 10%
-                            if (Math.floor(progress) % 10 === 0) {
-                                // Simulate deleted products count
-                                deletedProducts = Math.floor((progress / 100) * totalProducts);
-                                updateProgressInfo();
-                            }
+                            // Simulate deleted products count
+                            deletedProducts = Math.floor((progress / 100) * totalProducts);
+                            updateProgressInfo();
                         }
                     }, 1000);
                 }
