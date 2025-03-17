@@ -3,7 +3,7 @@
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than a configurable time period, including their images.
- * Version:            2.0.2
+ * Version:            2.0.3
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
@@ -479,21 +479,8 @@ class OH_Delete_Old_Outofstock_Products {
             wp_die( esc_html__( 'Security check failed. Please try again.', 'delete-old-outofstock-products' ) );
         }
         
-        // First, redirect back to show the process has started
-        if ( ! isset( $_GET['processing'] ) ) {
-            // Schedule the task to run on the next cron
-            wp_schedule_single_event( time(), 'oh_doop_process_deletion', array( get_current_user_id() ) );
-            
-            // Redirect to show "started" message
-            wp_safe_redirect( add_query_arg( 'started', '1', admin_url( 'admin.php?page=doop-settings' ) ) );
-            exit;
-        }
-        
-        // This is the direct processing (fallback if background processing fails)
+        // For immediate processing (more reliable than background processing)
         $deleted = $this->delete_old_out_of_stock_products();
-        
-        // Store the result in a transient for the user
-        set_transient( 'oh_doop_deleted_' . get_current_user_id(), $deleted, HOUR_IN_SECONDS );
         
         // Redirect back to the settings page with a success message
         wp_safe_redirect( add_query_arg( 'deleted', $deleted, admin_url( 'admin.php?page=doop-settings' ) ) );
