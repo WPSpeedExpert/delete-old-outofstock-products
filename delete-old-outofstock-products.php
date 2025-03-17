@@ -3,7 +3,7 @@
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than a configurable time period, including their images.
- * Version:            1.1.0
+ * Version:            1.2.0
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'DOOP_VERSION', '1.1.0' );
+define( 'DOOP_VERSION', '1.2.0' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -140,6 +140,13 @@ class OH_Delete_Old_Outofstock_Products {
         );
 
         add_settings_section(
+            'doop_stats_section',
+            __( 'Product Statistics', 'delete-old-outofstock-products' ),
+            array( $this, 'stats_section_callback' ),
+            'doop-settings'
+        );
+
+        add_settings_section(
             'doop_main_section',
             __( 'Product Deletion Settings', 'delete-old-outofstock-products' ),
             array( $this, 'section_callback' ),
@@ -185,6 +192,115 @@ class OH_Delete_Old_Outofstock_Products {
     }
 
     /**
+     * Stats section description callback
+     */
+    public function stats_section_callback() {
+        if ( ! class_exists( 'WooCommerce' ) ) {
+            echo '<div class="notice notice-warning inline"><p>';
+            esc_html_e( 'WooCommerce is not active. Statistics are only available when WooCommerce is active.', 'delete-old-outofstock-products' );
+            echo '</p></div>';
+            return;
+        }
+
+        $options = get_option( DOOP_OPTIONS_KEY, array( 'product_age' => 18 ) );
+        $product_age = isset( $options['product_age'] ) ? absint( $options['product_age'] ) : 18;
+        $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
+
+        // Get total number of products
+        $total_products = wp_count_posts( 'product' );
+        $total_published = $total_products->publish;
+
+        // Get number of out of stock products
+        $out_of_stock_query = new WP_Query( array(
+            'post_type'      => 'product',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'meta_query'     => array(
+                array(
+                    'key'   => '_stock_status',
+                    'value' => 'outofstock',
+                ),
+            ),
+        ) );
+        $out_of_stock_count = $out_of_stock_query->found_posts;
+
+        // Get number of old products
+        $old_products_query = new WP_Query( array(
+            'post_type'      => 'product',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'date_query'     => array(
+                array(
+                    'before' => $date_threshold,
+                ),
+            ),
+        ) );
+        $old_products_count = $old_products_query->found_posts;
+
+        // Get eligible for deletion
+        $eligible_query = new WP_Query( array(
+            'post_type'      => 'product',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'date_query'     => array(
+                array(
+                    'before' => $date_threshold,
+                ),
+            ),
+            'meta_query'     => array(
+                array(
+                    'key'   => '_stock_status',
+                    'value' => 'outofstock',
+                ),
+            ),
+        ) );
+        $eligible_count = $eligible_query->found_posts;
+        
+        // Display the stats
+        ?>
+        <div class="oh-doop-stats">
+            <table class="widefat striped">
+                <tr>
+                    <td><strong><?php esc_html_e( 'Total Products:', 'delete-old-outofstock-products' ); ?></strong></td>
+                    <td><?php echo esc_html( $total_published ); ?></td>
+                </tr>
+                <tr>
+                    <td><strong><?php esc_html_e( 'Out of Stock Products:', 'delete-old-outofstock-products' ); ?></strong></td>
+                    <td><?php echo esc_html( $out_of_stock_count ); ?></td>
+                </tr>
+                <tr>
+                    <td><strong><?php 
+                        /* translators: %d: product age in months */
+                        printf( esc_html__( 'Products Older Than %d Months:', 'delete-old-outofstock-products' ), $product_age ); 
+                    ?></strong></td>
+                    <td><?php echo esc_html( $old_products_count ); ?></td>
+                </tr>
+                <tr>
+                    <td style="background-color: #fef1f1;"><strong><?php esc_html_e( 'Products Eligible for Deletion:', 'delete-old-outofstock-products' ); ?></strong></td>
+                    <td style="background-color: #fef1f1;"><strong><?php echo esc_html( $eligible_count ); ?></strong></td>
+                </tr>
+            </table>
+            <p class="description">
+                <?php esc_html_e( 'The "Products Eligible for Deletion" count shows how many products will be deleted on the next automatic run.', 'delete-old-outofstock-products' ); ?>
+            </p>
+        </div>
+        <style>
+            .oh-doop-stats table {
+                width: auto;
+                min-width: 50%;
+                margin-bottom: 15px;
+            }
+            .oh-doop-stats td {
+                padding: 10px 15px;
+            }
+        </style>
+        <?php
+    }
+
+    /**
      * Section description callback
      */
     public function section_callback() {
@@ -226,6 +342,13 @@ class OH_Delete_Old_Outofstock_Products {
         ?>
         <div class="wrap">
             <h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
+            
+            <?php if ( isset( $_GET['manual_run'] ) && $_GET['manual_run'] == 'true' ) : ?>
+                <div class="notice notice-success">
+                    <p><?php esc_html_e( 'Product cleanup has been manually triggered. Eligible products will be deleted shortly.', 'delete-old-outofstock-products' ); ?></p>
+                </div>
+            <?php endif; ?>
+            
             <form method="post" action="options.php">
                 <?php
                 settings_fields( 'doop_settings_group' );
@@ -233,6 +356,17 @@ class OH_Delete_Old_Outofstock_Products {
                 submit_button();
                 ?>
             </form>
+            
+            <div class="oh-doop-manual-run">
+                <hr />
+                <h2><?php esc_html_e( 'Manual Run', 'delete-old-outofstock-products' ); ?></h2>
+                <p><?php esc_html_e( 'Click the button below to manually run the deletion process right now.', 'delete-old-outofstock-products' ); ?></p>
+                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                    <input type="hidden" name="action" value="oh_run_product_deletion">
+                    <?php wp_nonce_field( 'oh_run_product_deletion_nonce', 'oh_nonce' ); ?>
+                    <?php submit_button( __( 'Run Product Cleanup Now', 'delete-old-outofstock-products' ), 'secondary', 'run_now', false ); ?>
+                </form>
+            </div>
         </div>
         <?php
     }
@@ -244,7 +378,7 @@ class OH_Delete_Old_Outofstock_Products {
      * @return array Modified plugin action links.
      */
     public function add_settings_link( $links ) {
-        $settings_link = '<a href="' . admin_url( 'admin.php?page=doop-settings' ) . '">' . __( 'Settings', 'delete-old-outofstock-products' ) . '</a>';
+        $settings_link = '<a href="' . esc_url( admin_url( 'admin.php?page=doop-settings' ) ) . '">' . esc_html__( 'Settings', 'delete-old-outofstock-products' ) . '</a>';
         array_unshift( $links, $settings_link );
         return $links;
     }
@@ -345,6 +479,27 @@ class OH_Delete_Old_Outofstock_Products {
             wp_cache_flush();
             
         } while ( count( $products ) === $batch_size );
+    }
+
+    /**
+     * Handle manual run of the product deletion process
+     */
+    public function handle_manual_run() {
+        // Check nonce for security
+        if ( 
+            ! isset( $_POST['oh_nonce'] ) || 
+            ! wp_verify_nonce( $_POST['oh_nonce'], 'oh_run_product_deletion_nonce' ) || 
+            ! current_user_can( 'manage_options' )
+        ) {
+            wp_die( esc_html__( 'Security check failed. Please try again.', 'delete-old-outofstock-products' ) );
+        }
+        
+        // Run the deletion process
+        $this->delete_old_out_of_stock_products();
+        
+        // Redirect back to the settings page with a success message
+        wp_safe_redirect( add_query_arg( 'manual_run', 'true', admin_url( 'admin.php?page=doop-settings' ) ) );
+        exit;
     }
 
     /**
