@@ -4,7 +4,7 @@
  *
  * Cleanup when the plugin is deleted.
  *
- * @version 1.1.0
+ * @version 1.2.0
  */
 
 // Exit if accessed directly.
