@@ -1,9 +1,290 @@
-<?php
+/**
+     * Delete out-of-stock WooCommerce products older than the configured age, including images.
+     */
+    public function delete_old_out_of_stock_products() {
+        if ( ! class_exists( 'WooCommerce' ) ) {
+            return;
+        }
+
+        // Get options
+        $options = get_option( DOOP_OPTIONS_KEY, array(
+            'product_age' => 18,
+            'delete_images' => 'yes',
+        ) );
+
+        $product_age = isset( $options['product_age'] ) ? absint( $options['product_age'] ) : 18;
+        $delete_images = isset( $options['delete_images'] ) ? $options['delete_images'] : 'yes';
+
+        $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
+
+        // Process in smaller batches to reduce memory usage
+        $batch_size = 50;
+        $offset = 0;
+        $processed = 0;
+        $deleted = 0;
+        
+        // Get total for manual run
+        $total_count = 0;
+        if ( $this->is_manual_run ) {
+            $count_query = new WP_Query( array(
+                'post_type'      => 'product',
+                'post_status'    => 'publish',
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+                'date_query'     => array(
+                    array(
+                        'before' => $date_threshold,
+                    ),
+                ),
+                'meta_query'     => array(
+                    array(
+                        'key'   => '_stock_status',
+                        'value' => 'outofstock',
+                    ),
+                ),
+            ) );
+            $total_count = $count_query->found_posts;
+            
+            // Update progress with total
+            $this->update_progress( array(
+                'total' => $total_count,
+                'status' => 'processing',
+                'message' => sprintf( 
+                    __( 'Processing %d eligible products...', 'delete-old-outofstock-products' ),
+                    $total_count
+                )
+            ) );
+        }
+        
+        do {
+            $products = get_posts( array(
+                'post_type'      => 'product',
+                'post_status'    => 'publish',
+                'posts_per_page' => $batch_size,
+                'offset'         => $offset,
+                'date_query'     => array(
+                    array(
+                        'before' => $date_threshold,
+                    ),
+                ),
+                'meta_query'     => array(
+                    array(
+                        'key'   => '_stock_status',
+                        'value' => 'outofstock',
+                    ),
+                ),
+                'fields' => 'ids',
+            ) );
+            
+            if ( empty( $products ) ) {
+                break;
+            }
+            
+            foreach ( $products as $product_id ) {
+                $product = wc_get_product( $product_id );
+
+                if ( ! $product ) {
+                    $processed++;
+                    continue;
+                }
+
+                // Process product images if enabled
+                if ( 'yes' === $delete_images ) {
+                    $attachment_ids = array();
+
+                    // Featured image
+                    $featured_image_id = $product->get_image_id();
+                    if ( $featured_image_id ) {
+                        $attachment_ids[] = $featured_image_id;
+                    }
+
+                    // Gallery images
+                    $attachment_ids = array_merge( $attachment_ids, $product->get_gallery_image_ids() );
+
+                    foreach ( $attachment_ids as $attachment_id ) {
+                        if ( $attachment_id ) {
+                            // Skip placeholder images
+                            $attachment_url = wp_get_attachment_url( $attachment_id );
+                            if ( $attachment_url && $this->is_placeholder_image( $attachment_url ) ) {
+                                continue;
+                            }
+                            
+                            // Check if the image is used by other products or posts
+                            if ( $this->is_attachment_used_elsewhere( $attachment_id, $product_id ) ) {
+                                continue;
+                            }
+                            
+                            // Delete the attachment
+                            wp_delete_attachment( $attachment_id, true );
+                        }
+                    }
+                }
+
+                // Delete the product
+                wp_delete_post( $product_id, true );
+                $deleted++;
+                
+                // Update progress for manual run
+                if ( $this->is_manual_run && $deleted % 5 === 0 ) { // Update every 5 deletions
+                    $processed += 5;
+                    $this->update_progress( array(
+                        'processed' => $processed,
+                        'deleted' => $deleted,
+                        'message' => sprintf( 
+                            __( 'Processed %1$d of %2$d products. Deleted %3$d products.', 'delete-old-outofstock-products' ),
+                            $processed,
+                            $total_count,
+                            $deleted
+                        )
+                    ) );
+                }
+            }
+            
+            $processed = $offset + count( $products );
+            
+            // Update progress for manual run
+            if ( $this->is_manual_run ) {
+                $this->update_progress( array(
+                    'processed' => $processed,
+                    'deleted' => $deleted,
+                    'message' => sprintf( 
+                        __( 'Processed %1$d of %2$d products. Deleted %3$d products.', 'delete-old-outofstock-products' ),
+                        $processed,
+                        $total_count,
+                        $deleted
+                    )
+                ) );
+            }
+            
+            $offset += $batch_size;
+            
+            // Free up memory
+            wp_cache_flush();
+            
+        } while ( count( $products ) === $batch_size );
+        
+        // Final update for manual run
+        if ( $this->is_manual_run ) {
+            $this->update_progress( array(
+                'processed' => $total_count,
+                'deleted' => $deleted,
+                'percentage' => 100,
+                'status' => 'complete',
+                'message' => sprintf( 
+                    __( 'Cleanup complete! Processed %1$d products. Deleted %2$d products.', 'delete-old-outofstock-products' ),
+                    $total_count,
+                    $deleted
+                )
+            ) );
+        }
+        
+        return $deleted;
+    }run ) {
+            $count_query = new WP_Query( array(
+                'post_type'      => 'product',
+                'post_status'    => 'publish',
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+                'date_query'     => array(
+                    array(
+                        'before' => $date_threshold,
+                    ),
+                ),
+                'meta_query'     => array(
+                    array(
+                        'key'   => '_stock_status',
+                        'value' => 'outofstock',
+                    ),
+                ),
+            ) );
+            $total_count = $count_query->found_posts;
+            
+            // Update progress with total
+            $this->update_progress( array(
+                'total' => $total_count,
+                'status' => 'processing',
+                'message' => sprintf( 
+                    __( 'Processing %d eligible products...', 'delete-old-outofstock-products' ),
+                    $total_count
+                )
+            ) );
+        }
+        
+        do {
+            $products = get_posts( array(
+                'post_type'      => 'product',
+                'post_status'    => 'publish',
+                'posts_per_page' => $batch_size,
+                'offset'         => $offset,
+                'date_query'     => array(
+                    array(
+                        'before' => $date_threshold,
+                    ),
+                ),
+                'meta_query'     => array(
+                    array(
+                        'key'   => '_stock_status',
+                        'value' => 'outofstock',
+                    ),
+                ),
+                'fields' => 'ids',
+            ) );
+            
+            if ( empty( $products ) ) {
+                break;
+            }
+            
+            foreach ( $products as $product_id ) {
+                $product = wc_get_product( $product_id );
+
+                if ( ! $product ) {
+                    $processed++;
+                    continue;
+                }
+
+                // Process product images if enabled
+                if ( 'yes' === $delete_images ) {
+                    $attachment_ids = array();
+
+                    // Featured image
+                    $featured_image_id = $product->get_image_id();
+                    if ( $featured_image_id ) {
+                        $attachment_ids[] = $featured_image_id;
+                    }
+
+                    // Gallery images
+                    $attachment_ids = array_merge( $attachment_ids, $product->get_gallery_image_ids() );
+
+                    foreach ( $attachment_ids as $attachment_id ) {
+                        if ( $attachment_id ) {
+                            // Skip placeholder images
+                            $attachment_url = wp_get_attachment_url( $attachment_id );
+                            if ( $attachment_url && $this->is_placeholder_image( $attachment_url ) ) {
+                                continue;
+                            }
+                            
+                            // Check if the image is used by other products or posts
+                            if ( $this->is_attachment_used_elsewhere( $attachment_id, $product_id ) ) {
+                                continue;
+                            }
+                            
+                            // Delete the attachment
+                            wp_delete_attachment( $attachment_id, true );
+                        }
+                    }
+                }
+
+                // Delete the product
+                wp_delete_post( $product_id, true );
+                $deleted++;
+                
+                // Update progress for manual run
+                if ( $this->is_manual_<?php
 /**
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than a configurable time period, including their images.
- * Version:            1.2.0
+ * Version:            1.3.0
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
@@ -18,7 +299,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'DOOP_VERSION', '1.2.0' );
+define( 'DOOP_VERSION', '1.3.0' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -43,6 +324,20 @@ class OH_Delete_Old_Outofstock_Products {
      * @var array
      */
     private $options;
+    
+    /**
+     * Flag to track if a manual process is running
+     *
+     * @var bool
+     */
+    private $is_manual_run = false;
+    
+    /**
+     * Task ID for tracking progress
+     *
+     * @var string
+     */
+    private $task_id = '';
 
     /**
      * Get single instance of the plugin
@@ -87,7 +382,7 @@ class OH_Delete_Old_Outofstock_Products {
     }
 
     /**
-     * Plugin activation
+     * Activate the plugin
      */
     public function activate() {
         // Add default options if they don't exist
@@ -102,16 +397,194 @@ class OH_Delete_Old_Outofstock_Products {
         if ( ! wp_next_scheduled( DOOP_CRON_HOOK ) ) {
             wp_schedule_event( time(), 'daily', DOOP_CRON_HOOK );
         }
+
+        // Create required directories
+        $this->create_plugin_directories();
     }
 
     /**
-     * Plugin deactivation
+     * Create required plugin directories
+     */
+    private function create_plugin_directories() {
+        // Create assets directory structure
+        $dirs = array(
+            DOOP_PLUGIN_DIR . 'assets',
+            DOOP_PLUGIN_DIR . 'assets/js',
+            DOOP_PLUGIN_DIR . 'assets/css',
+        );
+
+        foreach ( $dirs as $dir ) {
+            if ( ! file_exists( $dir ) ) {
+                wp_mkdir_p( $dir );
+            }
+        }
+
+        // Create admin.js if it doesn't exist
+        $js_file = DOOP_PLUGIN_DIR . 'assets/js/admin.js';
+        if ( ! file_exists( $js_file ) ) {
+            $js_content = <<<'EOT'
+jQuery(document).ready(function($) {
+    // Progress bar functionality
+    if (typeof ohDoopTaskId !== 'undefined') {
+        var progressInterval;
+        var taskCompleted = false;
+        
+        function updateProgress() {
+            $.ajax({
+                url: ohDoopAdmin.ajaxUrl,
+                type: 'POST',
+                dataType: 'json',
+                data: {
+                    action: 'oh_doop_deletion_progress',
+                    nonce: ohDoopAdmin.nonce,
+                    task_id: ohDoopTaskId
+                },
+                success: function(response) {
+                    if (response.success && response.data) {
+                        var data = response.data;
+                        
+                        // Update the progress bar
+                        $('.oh-doop-progress-bar').css('width', data.percentage + '%').text(data.percentage + '%');
+                        
+                        // Update status text
+                        $('.status-text').text(data.status);
+                        
+                        // Update counters
+                        $('.products-processed').text(data.processed);
+                        $('.products-total').text(data.total);
+                        $('.products-deleted').text(data.deleted);
+                        
+                        // Update message
+                        $('.oh-doop-progress-message').text(data.message);
+                        
+                        // Check if process is complete
+                        if (data.status === 'complete' || data.status === 'error') {
+                            clearInterval(progressInterval);
+                            taskCompleted = true;
+                            $('.oh-doop-progress-buttons').show();
+                            
+                            if (data.status === 'complete') {
+                                $('.oh-doop-progress-bar').addClass('complete');
+                            } else {
+                                $('.oh-doop-progress-bar').addClass('error');
+                            }
+                        }
+                    }
+                },
+                error: function() {
+                    // Handle error
+                    $('.oh-doop-progress-message').text(ohDoopAdmin.error);
+                    $('.oh-doop-progress-bar').addClass('error');
+                    clearInterval(progressInterval);
+                    $('.oh-doop-progress-buttons').show();
+                }
+            });
+        }
+        
+        // Start progress updates
+        updateProgress(); // Initial update
+        progressInterval = setInterval(function() {
+            if (!taskCompleted) {
+                updateProgress();
+            } else {
+                clearInterval(progressInterval);
+            }
+        }, 2000); // Update every 2 seconds
+    }
+});
+EOT;
+            file_put_contents($js_file, $js_content);
+        }
+
+        // Create admin.css if it doesn't exist
+        $css_file = DOOP_PLUGIN_DIR . 'assets/css/admin.css';
+        if ( ! file_exists( $css_file ) ) {
+            $css_content = <<<'EOT'
+/* Progress bar styles */
+.oh-doop-progress-container {
+    margin: 20px 0;
+    padding: 20px;
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+}
+
+.oh-doop-progress-bar-container {
+    width: 100%;
+    height: 25px;
+    background-color: #f0f0f0;
+    border-radius: 4px;
+    margin: 15px 0;
+    overflow: hidden;
+}
+
+.oh-doop-progress-bar {
+    height: 100%;
+    background-color: #2271b1;
+    border-radius: 4px;
+    text-align: center;
+    line-height: 25px;
+    color: white;
+    font-weight: bold;
+    transition: width 0.5s;
+}
+
+.oh-doop-progress-bar.complete {
+    background-color: #46b450;
+}
+
+.oh-doop-progress-bar.error {
+    background-color: #dc3232;
+}
+
+.oh-doop-progress-status {
+    margin: 15px 0;
+}
+
+.oh-doop-progress-message {
+    margin: 15px 0;
+    font-style: italic;
+}
+
+.oh-doop-progress-buttons {
+    margin: 15px 0;
+}
+
+/* Stats table styles */
+.oh-doop-stats table {
+    width: auto;
+    min-width: 50%;
+    margin-bottom: 15px;
+}
+
+.oh-doop-stats td {
+    padding: 10px 15px;
+}
+
+/* Manual run section */
+.oh-doop-manual-run {
+    margin-top: 30px;
+    padding-top: 10px;
+}
+EOT;
+            file_put_contents($css_file, $css_content);
+        }
+    }
+
+    /**
+     * Deactivate the plugin
      */
     public function deactivate() {
         // Clear the cron event
         $timestamp = wp_next_scheduled( DOOP_CRON_HOOK );
         if ( $timestamp ) {
             wp_unschedule_event( $timestamp, DOOP_CRON_HOOK );
+        }
+        
+        // Clear any manual run schedules
+        $timestamp = wp_next_scheduled( 'oh_doop_manual_run' );
+        if ( $timestamp ) {
+            wp_unschedule_event( $timestamp, 'oh_doop_manual_run' );
         }
     }
 
@@ -349,6 +822,27 @@ class OH_Delete_Old_Outofstock_Products {
                 </div>
             <?php endif; ?>
             
+            <?php if ( isset( $_GET['manual_run'] ) && $_GET['manual_run'] == 'progress' && isset( $_GET['task_id'] ) ) : ?>
+                <div class="oh-doop-progress-container">
+                    <h2><?php esc_html_e( 'Product Cleanup Progress', 'delete-old-outofstock-products' ); ?></h2>
+                    <div class="oh-doop-progress-bar-container">
+                        <div class="oh-doop-progress-bar" style="width: 0%;">0%</div>
+                    </div>
+                    <div class="oh-doop-progress-status">
+                        <p><strong><?php esc_html_e( 'Status:', 'delete-old-outofstock-products' ); ?></strong> <span class="status-text"><?php esc_html_e( 'Initializing...', 'delete-old-outofstock-products' ); ?></span></p>
+                        <p><strong><?php esc_html_e( 'Products Processed:', 'delete-old-outofstock-products' ); ?></strong> <span class="products-processed">0</span> / <span class="products-total">0</span></p>
+                        <p><strong><?php esc_html_e( 'Products Deleted:', 'delete-old-outofstock-products' ); ?></strong> <span class="products-deleted">0</span></p>
+                    </div>
+                    <p class="oh-doop-progress-message"><?php esc_html_e( 'Please wait while we process your request...', 'delete-old-outofstock-products' ); ?></p>
+                    <div class="oh-doop-progress-buttons" style="display: none;">
+                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=doop-settings' ) ); ?>" class="button button-primary"><?php esc_html_e( 'Back to Settings', 'delete-old-outofstock-products' ); ?></a>
+                    </div>
+                    <script>
+                        var ohDoopTaskId = '<?php echo esc_js( $_GET['task_id'] ); ?>';
+                    </script>
+                </div>
+            <?php endif; ?>
+            
             <form method="post" action="options.php">
                 <?php
                 settings_fields( 'doop_settings_group' );
@@ -361,10 +855,11 @@ class OH_Delete_Old_Outofstock_Products {
                 <hr />
                 <h2><?php esc_html_e( 'Manual Run', 'delete-old-outofstock-products' ); ?></h2>
                 <p><?php esc_html_e( 'Click the button below to manually run the deletion process right now.', 'delete-old-outofstock-products' ); ?></p>
+                <p><?php esc_html_e( 'The process will run in the background and you can view the progress in real-time.', 'delete-old-outofstock-products' ); ?></p>
                 <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
                     <input type="hidden" name="action" value="oh_run_product_deletion">
                     <?php wp_nonce_field( 'oh_run_product_deletion_nonce', 'oh_nonce' ); ?>
-                    <?php submit_button( __( 'Run Product Cleanup Now', 'delete-old-outofstock-products' ), 'secondary', 'run_now', false ); ?>
+                    <?php submit_button( __( 'Run Product Cleanup Now', 'delete-old-outofstock-products' ), 'primary', 'run_now', false ); ?>
                 </form>
             </div>
         </div>
@@ -378,107 +873,137 @@ class OH_Delete_Old_Outofstock_Products {
      * @return array Modified plugin action links.
      */
     public function add_settings_link( $links ) {
-        $settings_link = '<a href="' . esc_url( admin_url( 'admin.php?page=doop-settings' ) ) . '">' . esc_html__( 'Settings', 'delete-old-outofstock-products' ) . '</a>';
-        array_unshift( $links, $settings_link );
-        return $links;
+        $settings_link = sprintf(
+            '<a href="%s">%s</a>',
+            esc_url( admin_url( 'admin.php?page=doop-settings' ) ),
+            esc_html__( 'Settings', 'delete-old-outofstock-products' )
+        );
+        return array_merge( array( $settings_link ), $links );
     }
 
     /**
-     * Delete out-of-stock WooCommerce products older than the configured age, including images.
+     * Process manual run with progress tracking
+     * 
+     * @param string $task_id The unique task ID for tracking progress.
      */
-    public function delete_old_out_of_stock_products() {
-        if ( ! class_exists( 'WooCommerce' ) ) {
+    public function process_manual_run( $task_id ) {
+        // Flag this as a manual run
+        $this->is_manual_run = true;
+        $this->task_id = $task_id;
+        
+        // Initialize progress
+        $this->update_progress( array(
+            'percentage' => 0,
+            'processed' => 0,
+            'total' => 0,
+            'deleted' => 0,
+            'status' => 'starting',
+            'message' => __( 'Starting product cleanup process...', 'delete-old-outofstock-products' )
+        ) );
+        
+        // Run the deletion process
+        $this->delete_old_out_of_stock_products();
+    }
+    
+    /**
+     * Update progress data for manual run
+     * 
+     * @param array $data The progress data to update.
+     */
+    private function update_progress( $data ) {
+        if ( ! $this->is_manual_run || empty( $this->task_id ) ) {
             return;
         }
-
-        // Get options
-        $options = get_option( DOOP_OPTIONS_KEY, array(
-            'product_age' => 18,
-            'delete_images' => 'yes',
-        ) );
-
-        $product_age = isset( $options['product_age'] ) ? absint( $options['product_age'] ) : 18;
-        $delete_images = isset( $options['delete_images'] ) ? $options['delete_images'] : 'yes';
-
-        $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
-
-        // Process in smaller batches to reduce memory usage
-        $batch_size = 50;
-        $offset = 0;
         
-        do {
-            $products = get_posts( array(
-                'post_type'      => 'product',
-                'post_status'    => 'publish',
-                'posts_per_page' => $batch_size,
-                'offset'         => $offset,
-                'date_query'     => array(
-                    array(
-                        'before' => $date_threshold,
-                    ),
-                ),
-                'meta_query'     => array(
-                    array(
-                        'key'   => '_stock_status',
-                        'value' => 'outofstock',
-                    ),
-                ),
-                'fields' => 'ids',
-            ) );
-            
-            if ( empty( $products ) ) {
-                break;
-            }
-            
-            foreach ( $products as $product_id ) {
-                $product = wc_get_product( $product_id );
+        $current = get_transient( 'oh_doop_deletion_progress_' . $this->task_id );
+        
+        if ( false === $current ) {
+            $current = array(
+                'percentage' => 0,
+                'processed' => 0,
+                'total' => 0,
+                'deleted' => 0,
+                'status' => 'starting',
+                'message' => __( 'Starting process...', 'delete-old-outofstock-products' )
+            );
+        }
+        
+        // Merge new data with current data
+        $updated = wp_parse_args( $data, $current );
+        
+        // Calculate percentage if not provided
+        if ( ! isset( $data['percentage'] ) && $updated['total'] > 0 ) {
+            $updated['percentage'] = round( ( $updated['processed'] / $updated['total'] ) * 100 );
+        }
+        
+        // Update the transient
+        set_transient( 'oh_doop_deletion_progress_' . $this->task_id, $updated, HOUR_IN_SECONDS );
+    }
+    }
 
-                if ( ! $product ) {
-                    continue;
-                }
+    /**
+     * Enqueue admin scripts
+     * 
+     * @param string $hook The current admin page.
+     */
+    public function enqueue_admin_scripts( $hook ) {
+        if ( 'woocommerce_page_doop-settings' !== $hook ) {
+            return;
+        }
+        
+        wp_enqueue_script(
+            'oh-doop-admin',
+            DOOP_PLUGIN_URL . 'assets/js/admin.js',
+            array( 'jquery' ),
+            DOOP_VERSION,
+            true
+        );
+        
+        wp_localize_script(
+            'oh-doop-admin',
+            'ohDoopAdmin',
+            array(
+                'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+                'nonce' => wp_create_nonce( 'oh_doop_ajax_nonce' ),
+                'processing' => __( 'Processing...', 'delete-old-outofstock-products' ),
+                'complete' => __( 'Complete!', 'delete-old-outofstock-products' ),
+                'error' => __( 'Error', 'delete-old-outofstock-products' )
+            )
+        );
+        
+        wp_enqueue_style(
+            'oh-doop-admin-css',
+            DOOP_PLUGIN_URL . 'assets/css/admin.css',
+            array(),
+            DOOP_VERSION
+        );
+    }
 
-                // Process product images if enabled
-                if ( 'yes' === $delete_images ) {
-                    $attachment_ids = array();
-
-                    // Featured image
-                    $featured_image_id = $product->get_image_id();
-                    if ( $featured_image_id ) {
-                        $attachment_ids[] = $featured_image_id;
-                    }
-
-                    // Gallery images
-                    $attachment_ids = array_merge( $attachment_ids, $product->get_gallery_image_ids() );
-
-                    foreach ( $attachment_ids as $attachment_id ) {
-                        if ( $attachment_id ) {
-                            // Skip placeholder images
-                            $attachment_url = wp_get_attachment_url( $attachment_id );
-                            if ( $attachment_url && $this->is_placeholder_image( $attachment_url ) ) {
-                                continue;
-                            }
-                            
-                            // Check if the image is used by other products or posts
-                            if ( $this->is_attachment_used_elsewhere( $attachment_id, $product_id ) ) {
-                                continue;
-                            }
-                            
-                            // Delete the attachment
-                            wp_delete_attachment( $attachment_id, true );
-                        }
-                    }
-                }
-
-                // Delete the product
-                wp_delete_post( $product_id, true );
-            }
-            
-            $offset += $batch_size;
-            
-            // Free up memory
-            wp_cache_flush();
-            
-        } while ( count( $products ) === $batch_size );
+    /**
+     * AJAX handler for deletion progress
+     */
+    public function ajax_deletion_progress() {
+        check_ajax_referer( 'oh_doop_ajax_nonce', 'nonce' );
+        
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+        
+        // Get the task ID
+        $task_id = isset( $_POST['task_id'] ) ? sanitize_text_field( $_POST['task_id'] ) : '';
+        
+        if ( empty( $task_id ) ) {
+            wp_send_json_error( 'Invalid task ID' );
+        }
+        
+        // Get the progress data
+        $progress = get_transient( 'oh_doop_deletion_progress_' . $task_id );
+        
+        if ( false === $progress ) {
+            wp_send_json_error( 'No progress data found' );
+        }
+        
+        wp_send_json_success( $progress );
     }
 
     /**
@@ -494,11 +1019,31 @@ class OH_Delete_Old_Outofstock_Products {
             wp_die( esc_html__( 'Security check failed. Please try again.', 'delete-old-outofstock-products' ) );
         }
         
-        // Run the deletion process
-        $this->delete_old_out_of_stock_products();
+        // Generate a unique task ID
+        $task_id = uniqid( 'task_' );
         
-        // Redirect back to the settings page with a success message
-        wp_safe_redirect( add_query_arg( 'manual_run', 'true', admin_url( 'admin.php?page=doop-settings' ) ) );
+        // Initialize progress
+        set_transient( 'oh_doop_deletion_progress_' . $task_id, array(
+            'percentage' => 0,
+            'processed' => 0,
+            'total' => 0,
+            'deleted' => 0,
+            'status' => 'starting',
+            'message' => __( 'Starting process...', 'delete-old-outofstock-products' )
+        ), HOUR_IN_SECONDS );
+        
+        // Schedule the immediate execution
+        wp_schedule_single_event( time(), 'oh_doop_manual_run', array( $task_id ) );
+        
+        // Redirect back to the settings page with the task ID
+        wp_safe_redirect( add_query_arg( 
+            array(
+                'page' => 'doop-settings',
+                'manual_run' => 'progress',
+                'task_id' => $task_id
+            ), 
+            admin_url( 'admin.php' ) 
+        ) );
         exit;
     }
 
@@ -588,5 +1133,8 @@ class OH_Delete_Old_Outofstock_Products {
 // Initialize the plugin
 function oh_doop_init() {
     OH_Delete_Old_Outofstock_Products::get_instance();
+    
+    // Register scheduled task for manual run
+    add_action( 'oh_doop_manual_run', array( OH_Delete_Old_Outofstock_Products::get_instance(), 'process_manual_run' ) );
 }
 add_action( 'plugins_loaded', 'oh_doop_init' );
