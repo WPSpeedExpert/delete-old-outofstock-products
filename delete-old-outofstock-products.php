@@ -3,7 +3,7 @@
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than a configurable time period, including their images.
- * Version:            1.5.0
+ * Version:            2.0.0
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
@@ -40,7 +40,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // 1.2 Constants Definition
-define( 'DOOP_VERSION', '1.5.0' );
+define( 'DOOP_VERSION', '2.0.0' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -105,7 +105,7 @@ class OH_Delete_Old_Outofstock_Products {
         add_action( 'admin_init', array( $this, 'register_settings' ) );
         
         // Add settings link to plugins page
-        add_filter( 'plugin_action_links', array( $this, 'add_settings_link' ), 10, 2 );
+        add_filter( 'plugin_action_links_' . plugin_basename( DOOP_PLUGIN_FILE ), array( $this, 'add_settings_link' ) );
 
         // Handle manual run
         add_action( 'admin_post_oh_run_product_deletion', array( $this, 'handle_manual_run' ) );
@@ -243,18 +243,15 @@ class OH_Delete_Old_Outofstock_Products {
      * Add settings link to plugin action links
      *
      * @param array $links Existing plugin action links.
-     * @param string $file Plugin file path.
      * @return array Modified plugin action links.
      */
-    public function add_settings_link( $links, $file ) {
-        if ( plugin_basename( DOOP_PLUGIN_FILE ) === $file ) {
-            $settings_link = sprintf(
-                '<a href="%s">%s</a>',
-                esc_url( admin_url( 'admin.php?page=doop-settings' ) ),
-                esc_html__( 'Settings', 'delete-old-outofstock-products' )
-            );
-            array_merge( array( $settings_link ), $links );
-        }
+    public function add_settings_link( $links ) {
+        $settings_link = sprintf(
+            '<a href="%s">%s</a>',
+            esc_url( admin_url( 'admin.php?page=doop-settings' ) ),
+            esc_html__( 'Settings', 'delete-old-outofstock-products' )
+        );
+        array_unshift( $links, $settings_link );
         return $links;
     }
 
