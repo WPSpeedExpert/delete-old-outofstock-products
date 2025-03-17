@@ -3,7 +3,7 @@
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than a configurable time period, including their images.
- * Version:            2.0.3
+ * Version:            2.1.0
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
@@ -40,7 +40,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // 1.2 Constants Definition
-define( 'DOOP_VERSION', '2.0.2' );
+define( 'DOOP_VERSION', '2.1.0' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -103,6 +103,7 @@ class OH_Delete_Old_Outofstock_Products {
         // Add settings page and menu
         add_action( 'admin_menu', array( $this, 'add_settings_page' ) );
         add_action( 'admin_init', array( $this, 'register_settings' ) );
+        add_action( 'admin_init', array( $this, 'check_for_batch_action' ) );
         
         // Add settings link to plugins page
         add_filter( 'plugin_action_links_' . plugin_basename( DOOP_PLUGIN_FILE ), array( $this, 'add_settings_link' ) );
@@ -410,59 +411,119 @@ class OH_Delete_Old_Outofstock_Products {
     }
 
     /**
+     * Hook into admin_init to check for batch processing requests
+     */
+    public function check_for_batch_action() {
+        if (isset($_GET['oh_action']) && $_GET['oh_action'] === 'process_batch') {
+            $this->process_batch();
+        }
+    }
+
+    /**
      * Render settings page
      */
     public function render_settings_page() {
-        if ( ! current_user_can( 'manage_options' ) ) {
+        if (!current_user_can('manage_options')) {
             return;
+        }
+        
+        // Check if we're in the middle of batch processing
+        $in_progress = isset($_GET['oh_action']) && $_GET['oh_action'] === 'process_batch';
+        $products_total = get_transient('oh_doop_products_total');
+        $products_deleted = get_transient('oh_doop_products_deleted');
+        $products_remaining = get_transient('oh_doop_products_to_delete');
+        
+        if ($in_progress && $products_total && $products_remaining) {
+            $progress = round(($products_deleted / $products_total) * 100);
         }
         ?>
         <div class="wrap">
-            <h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
+            <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
             
-            <?php if ( isset( $_GET['deleted'] ) && $_GET['deleted'] > 0 ) : ?>
-                <div class="notice notice-success">
-                    <p>
-                        <?php 
-                        /* translators: %d: number of products deleted */
-                        printf( 
-                            esc_html__( 'Product cleanup completed. %d products were deleted.', 'delete-old-outofstock-products' ), 
-                            intval( $_GET['deleted'] ) 
-                        ); 
-                        ?>
-                    </p>
+            <?php if ($in_progress && $products_total && $products_remaining): ?>
+            <!-- Progress UI -->
+            <div class="notice notice-info">
+                <p><?php esc_html_e('Product cleanup in progress...', 'delete-old-outofstock-products'); ?></p>
+                <div class="oh-progress-bar-container" style="height: 20px; width: 100%; background-color: #f0f0f0; margin-bottom: 10px;">
+                    <div class="oh-progress-bar" style="height: 100%; width: <?php echo esc_attr($progress); ?>%; background-color: #0073aa;"></div>
                 </div>
-            <?php elseif ( isset( $_GET['deleted'] ) && '0' === $_GET['deleted'] ) : ?>
-                <div class="notice notice-info">
-                    <p><?php esc_html_e( 'Product cleanup completed. No products were eligible for deletion.', 'delete-old-outofstock-products' ); ?></p>
-                </div>
-            <?php elseif ( isset( $_GET['started'] ) && $_GET['started'] === '1' ) : ?>
-                <div class="notice notice-info">
-                    <p><?php esc_html_e( 'Product cleanup process has started and is running in the background. You can continue using your site while this runs.', 'delete-old-outofstock-products' ); ?></p>
-                    <p><?php esc_html_e( 'The cleanup results will be displayed the next time you visit this page.', 'delete-old-outofstock-products' ); ?></p>
+                <p>
+                    <?php 
+                    printf(
+                        esc_html__('Deleted %1$d of %2$d products (%3$d%% complete)', 'delete-old-outofstock-products'),
+                        $products_deleted,
+                        $products_total,
+                        $progress
+                    ); 
+                    ?>
+                </p>
+                <p id="oh-auto-refresh-notice"><?php esc_html_e('The page will automatically refresh to continue processing...', 'delete-old-outofstock-products'); ?></p>
+            </div>
+            
+            <script type="text/javascript">
+            (function($) {
+                // Automatically refresh the page after a short delay
+                setTimeout(function() {
+                    window.location.href = '<?php echo esc_url(admin_url('admin.php?page=doop-settings&oh_action=process_batch&oh_nonce=' . wp_create_nonce('oh_process_batch_nonce'))); ?>';
+                }, 1000); // Refresh after 1 second
+            })(jQuery);
+            </script>
+            <?php else: ?>
+                <?php if (isset($_GET['deleted']) && $_GET['deleted'] > 0): ?>
+                    <div class="notice notice-success">
+                        <p>
+                            <?php 
+                            /* translators: %d: number of products deleted */
+                            printf( 
+                                esc_html__('Product cleanup completed. %d products were deleted.', 'delete-old-outofstock-products'), 
+                                intval($_GET['deleted']) 
+                            ); 
+                            ?>
+                        </p>
+                    </div>
+                <?php elseif (isset($_GET['deleted']) && '0' === $_GET['deleted']): ?>
+                    <div class="notice notice-info">
+                        <p><?php esc_html_e('Product cleanup completed. No products were eligible for deletion.', 'delete-old-outofstock-products'); ?></p>
+                    </div>
+                <?php endif; ?>
+                
+                <form method="post" action="options.php">
+                    <?php
+                    settings_fields('doop_settings_group');
+                    do_settings_sections('doop-settings');
+                    submit_button();
+                    ?>
+                </form>
+                
+                <div class="oh-doop-manual-run">
+                    <hr />
+                    <h2><?php esc_html_e('Manual Run', 'delete-old-outofstock-products'); ?></h2>
+                    <p><?php esc_html_e('Click the button below to manually run the deletion process right now.', 'delete-old-outofstock-products'); ?></p>
+                    <p><em><?php esc_html_e('Note: The cleanup process runs in batches and will display a progress bar. Please don\'t navigate away from this page during processing.', 'delete-old-outofstock-products'); ?></em></p>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                        <input type="hidden" name="action" value="oh_run_product_deletion">
+                        <?php wp_nonce_field('oh_run_product_deletion_nonce', 'oh_nonce'); ?>
+                        <?php submit_button(__('Run Product Cleanup Now', 'delete-old-outofstock-products'), 'primary', 'run_now', false); ?>
+                    </form>
                 </div>
             <?php endif; ?>
-            
-            <form method="post" action="options.php">
-                <?php
-                settings_fields( 'doop_settings_group' );
-                do_settings_sections( 'doop-settings' );
-                submit_button();
-                ?>
-            </form>
-            
-            <div class="oh-doop-manual-run">
-                <hr />
-                <h2><?php esc_html_e( 'Manual Run', 'delete-old-outofstock-products' ); ?></h2>
-                <p><?php esc_html_e( 'Click the button below to manually run the deletion process right now.', 'delete-old-outofstock-products' ); ?></p>
-                <p><em><?php esc_html_e( 'Note: The cleanup process runs in the background and may take some time for stores with many products. You can continue using your site while the process runs, and check back later for results.', 'delete-old-outofstock-products' ); ?></em></p>
-                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-                    <input type="hidden" name="action" value="oh_run_product_deletion">
-                    <?php wp_nonce_field( 'oh_run_product_deletion_nonce', 'oh_nonce' ); ?>
-                    <?php submit_button( __( 'Run Product Cleanup Now', 'delete-old-outofstock-products' ), 'primary', 'run_now', false ); ?>
-                </form>
-            </div>
         </div>
+        <style>
+            .card {
+                background: #fff;
+                border: 1px solid #ccd0d4;
+                border-radius: 4px;
+                margin-top: 20px;
+                padding: 15px 20px;
+            }
+            .card h2 {
+                margin-top: 0;
+            }
+            .oh-progress-bar-container {
+                border-radius: 3px;
+                overflow: hidden;
+            }
+        </style>
         <?php
     }
 
@@ -479,12 +540,175 @@ class OH_Delete_Old_Outofstock_Products {
             wp_die( esc_html__( 'Security check failed. Please try again.', 'delete-old-outofstock-products' ) );
         }
         
-        // For immediate processing (more reliable than background processing)
-        $deleted = $this->delete_old_out_of_stock_products();
+        // Instead of processing everything at once, set up a batch process
+        $options = get_option( DOOP_OPTIONS_KEY, array(
+            'product_age' => 18,
+            'delete_images' => 'yes',
+        ));
         
-        // Redirect back to the settings page with a success message
-        wp_safe_redirect( add_query_arg( 'deleted', $deleted, admin_url( 'admin.php?page=doop-settings' ) ) );
+        $product_age = isset( $options['product_age'] ) ? absint( $options['product_age'] ) : 18;
+        $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
+        
+        // Get the total count of products to be deleted
+        $query = new WP_Query( array(
+            'post_type'      => 'product',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'date_query'     => array(
+                array(
+                    'before' => $date_threshold,
+                ),
+            ),
+            'meta_query'     => array(
+                array(
+                    'key'   => '_stock_status',
+                    'value' => 'outofstock',
+                ),
+            ),
+        ));
+        
+        $total_to_delete = count($query->posts);
+        
+        if ($total_to_delete === 0) {
+            // No products to delete, redirect with message
+            wp_safe_redirect( add_query_arg( 'deleted', '0', admin_url( 'admin.php?page=doop-settings' ) ) );
+            exit;
+        }
+        
+        // Store the IDs in a transient for batch processing
+        set_transient( 'oh_doop_products_to_delete', $query->posts, HOUR_IN_SECONDS );
+        set_transient( 'oh_doop_products_total', $total_to_delete, HOUR_IN_SECONDS );
+        set_transient( 'oh_doop_products_deleted', 0, HOUR_IN_SECONDS );
+        
+        // Redirect to our batch processor
+        wp_safe_redirect( admin_url( 'admin.php?page=doop-settings&oh_action=process_batch&oh_nonce=' . wp_create_nonce('oh_process_batch_nonce') ) );
         exit;
+    }
+
+    /**
+     * Process a batch of products
+     */
+    public function process_batch() {
+        // Check nonce and capabilities
+        if ( 
+            ! isset( $_GET['oh_nonce'] ) || 
+            ! wp_verify_nonce( $_GET['oh_nonce'], 'oh_process_batch_nonce' ) || 
+            ! current_user_can( 'manage_options' ) ||
+            ! isset( $_GET['oh_action'] ) ||
+            $_GET['oh_action'] !== 'process_batch'
+        ) {
+            return;
+        }
+        
+        // Get saved product IDs
+        $products = get_transient( 'oh_doop_products_to_delete' );
+        $total = get_transient( 'oh_doop_products_total' );
+        $deleted_so_far = get_transient( 'oh_doop_products_deleted' );
+        
+        if (!$products || empty($products)) {
+            // All done, clean up and show completion message
+            delete_transient('oh_doop_products_to_delete');
+            delete_transient('oh_doop_products_total');
+            delete_transient('oh_doop_products_deleted');
+            
+            // Only redirect if this is an AJAX request
+            if (!wp_doing_ajax()) {
+                wp_safe_redirect( add_query_arg( 'deleted', $deleted_so_far, admin_url( 'admin.php?page=doop-settings' ) ) );
+                exit;
+            }
+            return;
+        }
+        
+        // Get the batch size - process a small number of products per batch
+        $batch_size = 5;
+        $batch = array_slice($products, 0, $batch_size);
+        $remaining = array_slice($products, $batch_size);
+        
+        // Save the remaining products for the next batch
+        set_transient('oh_doop_products_to_delete', $remaining, HOUR_IN_SECONDS);
+        
+        // Process this batch
+        $options = get_option(DOOP_OPTIONS_KEY, array(
+            'delete_images' => 'yes',
+        ));
+        $delete_images = isset($options['delete_images']) ? $options['delete_images'] : 'yes';
+        $batch_deleted = 0;
+        
+        foreach ($batch as $product_id) {
+            $product = wc_get_product($product_id);
+            
+            if (!$product) {
+                continue;
+            }
+            
+            // Process product images if enabled
+            if ('yes' === $delete_images) {
+                $attachment_ids = array();
+                
+                // Featured image
+                $featured_image_id = $product->get_image_id();
+                if ($featured_image_id) {
+                    $attachment_ids[] = $featured_image_id;
+                }
+                
+                // Gallery images
+                $attachment_ids = array_merge($attachment_ids, $product->get_gallery_image_ids());
+                
+                foreach ($attachment_ids as $attachment_id) {
+                    if ($attachment_id) {
+                        // Skip placeholder images
+                        $attachment_url = wp_get_attachment_url($attachment_id);
+                        if ($attachment_url && $this->is_placeholder_image($attachment_url)) {
+                            continue;
+                        }
+                        
+                        // Check if the image is used by other products or posts
+                        if ($this->is_attachment_used_elsewhere($attachment_id, $product_id)) {
+                            continue;
+                        }
+                        
+                        // Delete the attachment
+                        wp_delete_attachment($attachment_id, true);
+                    }
+                }
+            }
+            
+            // Delete the product
+            $result = wp_delete_post($product_id, true);
+            if ($result) {
+                $batch_deleted++;
+            }
+        }
+        
+        // Update the count of deleted products
+        $new_deleted_count = $deleted_so_far + $batch_deleted;
+        set_transient('oh_doop_products_deleted', $new_deleted_count, HOUR_IN_SECONDS);
+        
+        // Calculate progress percentage
+        $progress = round(($new_deleted_count / $total) * 100);
+        
+        // If this is an AJAX request, return JSON
+        if (wp_doing_ajax()) {
+            wp_send_json(array(
+                'success' => true,
+                'done' => empty($remaining),
+                'progress' => $progress,
+                'deleted' => $new_deleted_count,
+                'total' => $total,
+                'remaining' => count($remaining)
+            ));
+        } else {
+            // If we're done, redirect to the completion page
+            if (empty($remaining)) {
+                wp_safe_redirect(add_query_arg('deleted', $new_deleted_count, admin_url('admin.php?page=doop-settings')));
+                exit;
+            }
+            
+            // Otherwise, redirect to continue processing
+            wp_safe_redirect(admin_url('admin.php?page=doop-settings&oh_action=process_batch&oh_nonce=' . wp_create_nonce('oh_process_batch_nonce')));
+            exit;
+        }
     }
 
     //----------------------------------------//
@@ -512,7 +736,7 @@ class OH_Delete_Old_Outofstock_Products {
 
         $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
 
-        // Process in smaller batches to reduce memory usage
+// Process in smaller batches to reduce memory usage
         $batch_size = 50;
         $offset = 0;
         $deleted = 0;
