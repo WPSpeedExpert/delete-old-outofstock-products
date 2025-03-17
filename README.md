@@ -1,6 +1,6 @@
 # Delete Old Out-of-Stock Products
 
-Automatically delete WooCommerce products that are **out of stock** and **older than 1.5 years**, including their associated product images. This plugin helps keep your store optimized by removing outdated products and freeing up disk space.
+Automatically delete WooCommerce products that are **out of stock** and **older than a configurable period** (default 18 months), including their associated product images. This plugin helps keep your store optimized by removing outdated products and freeing up disk space.
 
 ---
 
@@ -8,11 +8,14 @@ Automatically delete WooCommerce products that are **out of stock** and **older 
 - Automatically runs daily via WordPress cron.
 - Deletes WooCommerce products that:
   - Are **out of stock**.
-  - Were published more than **18 months ago**.
-- Deletes the product’s **featured image** and **gallery images**.
-- Requires **no configuration**—just install and activate.
+  - Were published more than **X months ago** (configurable, default 18 months).
+- Optionally deletes the product's **featured image** and **gallery images**.
+- **Protects WooCommerce placeholder images** from being deleted.
+- **Preserves images used by multiple products** or posts.
+- Simple configuration—just install, activate, and set your preferences.
 - Fully compatible with the latest WooCommerce features, including HPOS.
 - Clean activation and uninstallation, with scheduled events properly removed.
+- Resource-efficient batch processing for minimal server impact.
 
 ---
 
@@ -20,7 +23,8 @@ Automatically delete WooCommerce products that are **out of stock** and **older 
 1. Upload the plugin to your `/wp-content/plugins/` directory:
     - Or install directly via the WordPress Plugins admin.
 2. Activate the plugin through the **Plugins** menu in WordPress.
-3. The cleanup runs **automatically once daily** via WordPress cron.
+3. Configure the settings in **WooCommerce → Delete Old Products**.
+4. The cleanup runs **automatically once daily** via WordPress cron.
 
 ---
 
@@ -34,25 +38,37 @@ Automatically delete WooCommerce products that are **out of stock** and **older 
 ## 🚀 How It Works
 - On activation, a **daily cron event** is scheduled.
 - Every day, the plugin:
-  - Searches for **published products** older than **18 months**.
+  - Searches for **published products** older than your configured time period.
   - Deletes products that are marked as **out of stock**.
-  - Deletes the product’s **featured image** and **gallery images**.
+  - Optionally deletes the product's **featured image** and **gallery images** (while preserving WooCommerce placeholder images).
   - Permanently deletes the product from the database.
 
 ---
 
+## ⚙️ Configuration
+Navigate to **WooCommerce → Delete Old Products** to configure:
+
+- **Product Age (months)**: Products older than this will be considered for deletion (if out of stock).
+- **Delete Product Images**: Choose whether to delete product images or keep them when deleting products.
+
+---
+
 ## ⚠️ Important Notes
-- There are **no settings**. The plugin runs silently in the background.
 - Works only if **WooCommerce is active**.
+- Only deletes products that are **both out of stock AND older than the configured age**.
+- WooCommerce placeholder images are **protected from deletion**.
+- Images used by multiple products or in post content are **preserved**.
+- Uses **memory-efficient batch processing** to handle large stores.
 - Deactivation removes the scheduled cron job.
-- Uninstallation removes the cron job entirely.
+- Uninstallation removes the cron job and all plugin settings.
 
 ---
 
 ## 🗑️ Uninstalling
 When the plugin is uninstalled:
 - The cron job is unscheduled.
-- No other data is deleted.
+- Plugin settings are deleted.
+- No product data is deleted during uninstallation.
 
 ---
 
