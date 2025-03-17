@@ -3,7 +3,7 @@
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than a configurable time period, including their images.
- * Version:            2.0.1
+ * Version:            2.0.2
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
@@ -40,7 +40,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // 1.2 Constants Definition
-define( 'DOOP_VERSION', '2.0.0' );
+define( 'DOOP_VERSION', '2.0.2' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -432,6 +432,15 @@ class OH_Delete_Old_Outofstock_Products {
                         ?>
                     </p>
                 </div>
+            <?php elseif ( isset( $_GET['deleted'] ) && '0' === $_GET['deleted'] ) : ?>
+                <div class="notice notice-info">
+                    <p><?php esc_html_e( 'Product cleanup completed. No products were eligible for deletion.', 'delete-old-outofstock-products' ); ?></p>
+                </div>
+            <?php elseif ( isset( $_GET['started'] ) && $_GET['started'] === '1' ) : ?>
+                <div class="notice notice-info">
+                    <p><?php esc_html_e( 'Product cleanup process has started and is running in the background. You can continue using your site while this runs.', 'delete-old-outofstock-products' ); ?></p>
+                    <p><?php esc_html_e( 'The cleanup results will be displayed the next time you visit this page.', 'delete-old-outofstock-products' ); ?></p>
+                </div>
             <?php endif; ?>
             
             <form method="post" action="options.php">
@@ -446,6 +455,7 @@ class OH_Delete_Old_Outofstock_Products {
                 <hr />
                 <h2><?php esc_html_e( 'Manual Run', 'delete-old-outofstock-products' ); ?></h2>
                 <p><?php esc_html_e( 'Click the button below to manually run the deletion process right now.', 'delete-old-outofstock-products' ); ?></p>
+                <p><em><?php esc_html_e( 'Note: The cleanup process runs in the background and may take some time for stores with many products. You can continue using your site while the process runs, and check back later for results.', 'delete-old-outofstock-products' ); ?></em></p>
                 <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
                     <input type="hidden" name="action" value="oh_run_product_deletion">
                     <?php wp_nonce_field( 'oh_run_product_deletion_nonce', 'oh_nonce' ); ?>
@@ -469,8 +479,21 @@ class OH_Delete_Old_Outofstock_Products {
             wp_die( esc_html__( 'Security check failed. Please try again.', 'delete-old-outofstock-products' ) );
         }
         
-        // Run the deletion process
+        // First, redirect back to show the process has started
+        if ( ! isset( $_GET['processing'] ) ) {
+            // Schedule the task to run on the next cron
+            wp_schedule_single_event( time(), 'oh_doop_process_deletion', array( get_current_user_id() ) );
+            
+            // Redirect to show "started" message
+            wp_safe_redirect( add_query_arg( 'started', '1', admin_url( 'admin.php?page=doop-settings' ) ) );
+            exit;
+        }
+        
+        // This is the direct processing (fallback if background processing fails)
         $deleted = $this->delete_old_out_of_stock_products();
+        
+        // Store the result in a transient for the user
+        set_transient( 'oh_doop_deleted_' . get_current_user_id(), $deleted, HOUR_IN_SECONDS );
         
         // Redirect back to the settings page with a success message
         wp_safe_redirect( add_query_arg( 'deleted', $deleted, admin_url( 'admin.php?page=doop-settings' ) ) );
@@ -695,6 +718,47 @@ function oh_doop_admin_notice() {
     </div>
     <?php
 }
+
+/**
+ * Process deletion in background
+ * 
+ * @param int $user_id The user ID who initiated the deletion
+ */
+function oh_doop_process_background_deletion( $user_id ) {
+    // Get the plugin instance
+    $plugin = OH_Delete_Old_Outofstock_Products::get_instance();
+    
+    // Run the deletion process
+    $deleted = $plugin->delete_old_out_of_stock_products();
+    
+    // Store the result in a transient for the user
+    set_transient( 'oh_doop_deleted_' . $user_id, $deleted, HOUR_IN_SECONDS );
+}
+add_action( 'oh_doop_process_deletion', 'oh_doop_process_background_deletion' );
+
+/**
+ * Check for deletion results when admin page loads
+ */
+function oh_doop_check_deletion_results() {
+    $screen = get_current_screen();
+    
+    // Only on our settings page
+    if ( isset( $screen->id ) && 'woocommerce_page_doop-settings' === $screen->id ) {
+        $user_id = get_current_user_id();
+        $deleted = get_transient( 'oh_doop_deleted_' . $user_id );
+        
+        // If we have results and we're not already showing results
+        if ( false !== $deleted && ! isset( $_GET['deleted'] ) && ! isset( $_GET['started'] ) ) {
+            // Delete the transient
+            delete_transient( 'oh_doop_deleted_' . $user_id );
+            
+            // Redirect to show results
+            wp_safe_redirect( add_query_arg( 'deleted', $deleted, admin_url( 'admin.php?page=doop-settings' ) ) );
+            exit;
+        }
+    }
+}
+add_action( 'current_screen', 'oh_doop_check_deletion_results' );
 
 /**
  * Initialize the plugin
