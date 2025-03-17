@@ -1,56 +1,14 @@
-//========================================//
-// 3. PLUGIN INITIALIZATION              //
-//========================================//
-
-/**
- * Check if WooCommerce is active
- * 
- * @return bool True if WooCommerce is active
- */
-function oh_doop_is_woocommerce_active() {
-    return class_exists( 'WooCommerce' );
-}
-
-/**
- * Display admin notice if WooCommerce is not active
- */
-function oh_doop_admin_notice() {
-    ?>
-    <div class="notice notice-warning is-dismissible">
-        <p><?php esc_html_e( 'Delete Old Out-of-Stock Products requires WooCommerce to be installed and activated.', 'delete-old-outofstock-products' ); ?></p>
-    </div>
-    <?php
-}
-
-/**
- * Initialize the plugin
- */
-function oh_doop_init() {
-    // Check if WooCommerce is active
-    if ( ! oh_doop_is_woocommerce_active() ) {
-        add_action( 'admin_notices', 'oh_doop_admin_notice' );
-        return;
-    }
-    
-    // Initialize the plugin
-    OH_Delete_Old_Outofstock_Products::get_instance();
-}
-add_action( 'plugins_loaded', 'oh_doop_init' );
-
-// AJAX handlers
-add_action( 'wp_ajax_oh_doop_get_eligible_count', array( 'OH_Delete_Old_Outofstock_Products', 'ajax_get_eligible_count_static' ) );
-add_action( 'wp_ajax_oh_run_product_deletion', array( 'OH_Delete_Old_Outofstock_Products', 'ajax_run_deletion_static' ) );
 <?php
 /**
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than a configurable time period, including their images.
- * Version:            1.4.2
+ * Version:            1.5.0
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
- * License:            GPL-2.0+
- * License URI:        https://www.gnu.org/licenses/gpl-2.0.html
+ * License:            GPL-3.0+
+ * License URI:        https://www.gnu.org/licenses/gpl-3.0.html
  * GitHub Plugin URI:  https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * GitHub Branch:      main
  *
@@ -83,7 +41,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // 1.2 Constants Definition
-define( 'DOOP_VERSION', '1.4.2' );
+define( 'DOOP_VERSION', '1.5.0' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -117,7 +75,7 @@ class OH_Delete_Old_Outofstock_Products {
      */
     private $options;
 
-    //----------------------------------------//
+//----------------------------------------//
     // 2.2 Class Initialization
     //----------------------------------------//
     
@@ -205,7 +163,7 @@ class OH_Delete_Old_Outofstock_Products {
         }
     }
 
-    //----------------------------------------//
+//----------------------------------------//
     // 2.4 Admin Interface
     //----------------------------------------//
     
@@ -297,8 +255,8 @@ class OH_Delete_Old_Outofstock_Products {
                 ),
             )
         );
-        
-        // Inline JS for admin
+
+    // Inline JS for admin
         wp_add_inline_script( 'oh-doop-admin', '
             jQuery(document).ready(function($) {
                 var progressInterval;
@@ -475,7 +433,7 @@ class OH_Delete_Old_Outofstock_Products {
         wp_enqueue_script( 'oh-doop-admin' );
     }
 
-    /**
+/**
      * Add settings page
      */
     public function add_settings_page() {
@@ -570,7 +528,7 @@ class OH_Delete_Old_Outofstock_Products {
         return $links;
     }
 
-    /**
+/**
      * Stats section description callback
      */
     public function stats_section_callback() {
@@ -595,6 +553,198 @@ class OH_Delete_Old_Outofstock_Products {
             'post_status'    => 'publish',
             'posts_per_page' => -1,
             'fields'         => 'ids',
+            'meta_query'     => array(
+                array(
+                    'key'   => '_stock_status',
+                    'value' => 'outofstock',
+                ),
+            ),
+        ) );
+        $out_of_stock_count = $out_of_stock_query->found_posts;
+
+        // Get number of old products
+        $old_products_query = new WP_Query( array(
+            'post_type'      => 'product',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'date_query'     => array(
+                array(
+                    'before' => $date_threshold,
+                ),
+            ),
+        ) );
+        $old_products_count = $old_products_query->found_posts;
+
+        // Get eligible for deletion
+        $eligible_query = new WP_Query( array(
+            'post_type'      => 'product',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'date_query'     => array(
+                array(
+                    'before' => $date_threshold,
+                ),
+            ),
+            'meta_query'     => array(
+                array(
+                    'key'   => '_stock_status',
+                    'value' => 'outofstock',
+                ),
+            ),
+        ) );
+        $eligible_count = $eligible_query->found_posts;
+        
+        // Display the stats
+        ?>
+        <div class="oh-doop-stats">
+            <table class="widefat striped">
+                <tr>
+                    <td><strong><?php esc_html_e( 'Total Products:', 'delete-old-outofstock-products' ); ?></strong></td>
+                    <td><?php echo esc_html( $total_published ); ?></td>
+                </tr>
+                <tr>
+                    <td><strong><?php esc_html_e( 'Out of Stock Products:', 'delete-old-outofstock-products' ); ?></strong></td>
+                    <td><?php echo esc_html( $out_of_stock_count ); ?></td>
+                </tr>
+                <tr>
+                    <td><strong><?php 
+                        /* translators: %d: product age in months */
+                        printf( esc_html__( 'Products Older Than %d Months:', 'delete-old-outofstock-products' ), $product_age ); 
+                    ?></strong></td>
+                    <td><?php echo esc_html( $old_products_count ); ?></td>
+                </tr>
+                <tr>
+                    <td style="background-color: #fef1f1;"><strong><?php esc_html_e( 'Products Eligible for Deletion:', 'delete-old-outofstock-products' ); ?></strong></td>
+                    <td style="background-color: #fef1f1;"><strong><?php echo esc_html( $eligible_count ); ?></strong></td>
+                </tr>
+            </table>
+            <p class="description">
+                <?php esc_html_e( 'The "Products Eligible for Deletion" count shows how many products will be deleted on the next automatic run.', 'delete-old-outofstock-products' ); ?>
+            </p>
+        </div>
+        <?php
+    }
+
+/**
+     * Section description callback
+     */
+    public function section_callback() {
+        echo '<p>' . esc_html__( 'Configure the settings for automatic deletion of old out-of-stock products.', 'delete-old-outofstock-products' ) . '</p>';
+    }
+
+    /**
+     * Product age field callback
+     */
+    public function product_age_callback() {
+        $product_age = isset( $this->options['product_age'] ) ? $this->options['product_age'] : 18;
+        ?>
+        <input type="number" id="product_age" name="<?php echo esc_attr( DOOP_OPTIONS_KEY ); ?>[product_age]" value="<?php echo esc_attr( $product_age ); ?>" min="1" step="1" />
+        <p class="description"><?php esc_html_e( 'Products older than this many months will be deleted if they are out of stock.', 'delete-old-outofstock-products' ); ?></p>
+        <?php
+    }
+
+    /**
+     * Delete images checkbox callback
+     */
+    public function delete_images_callback() {
+        $delete_images = isset( $this->options['delete_images'] ) ? $this->options['delete_images'] : 'yes';
+        ?>
+        <label for="delete_images">
+            <input type="checkbox" id="delete_images" name="<?php echo esc_attr( DOOP_OPTIONS_KEY ); ?>[delete_images]" <?php checked( $delete_images, 'yes' ); ?> />
+            <?php esc_html_e( 'Delete associated product images when deleting products', 'delete-old-outofstock-products' ); ?>
+        </label>
+        <p class="description"><?php esc_html_e( 'This will delete featured images and gallery images associated with the product.', 'delete-old-outofstock-products' ); ?></p>
+        <?php
+    }
+
+    /**
+     * Render settings page
+     */
+    public function render_settings_page() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+        ?>
+        <div class="wrap">
+            <h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
+            
+            <?php if ( isset( $_GET['deleted'] ) && $_GET['deleted'] > 0 ) : ?>
+                <div class="notice notice-success">
+                    <p>
+                        <?php 
+                        /* translators: %d: number of products deleted */
+                        printf( 
+                            esc_html__( 'Product cleanup completed. %d products were deleted.', 'delete-old-outofstock-products' ), 
+                            intval( $_GET['deleted'] ) 
+                        ); 
+                        ?>
+                    </p>
+                </div>
+            <?php endif; ?>
+            
+            <form method="post" action="options.php">
+                <?php
+                settings_fields( 'doop_settings_group' );
+                do_settings_sections( 'doop-settings' );
+                submit_button();
+                ?>
+            </form>
+            
+            <div class="oh-doop-manual-run">
+                <hr />
+                <h2><?php esc_html_e( 'Manual Run', 'delete-old-outofstock-products' ); ?></h2>
+                <p><?php esc_html_e( 'Click the button below to manually run the deletion process right now.', 'delete-old-outofstock-products' ); ?></p>
+                <form method="post" action="<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>" id="oh-doop-run-form">
+                    <input type="hidden" name="action" value="oh_run_product_deletion">
+                    <?php wp_nonce_field( 'oh_run_product_deletion_nonce', 'oh_nonce' ); ?>
+                    <?php submit_button( __( 'Run Product Cleanup Now', 'delete-old-outofstock-products' ), 'primary', 'run_now', false ); ?>
+                    <span class="spinner oh-doop-progress-spinner"></span>
+                </form>
+                <div class="oh-doop-progress-status"></div>
+            </div>
+        </div>
+        <?php
+    }
+
+//----------------------------------------//
+    // 2.5 AJAX Handlers
+    //----------------------------------------//
+    
+    /**
+     * Get count of eligible products via AJAX
+     */
+    public function ajax_get_eligible_count() {
+        // Check nonce for security
+        if ( ! isset( $_POST['nonce'] ) || ! wp_verify_nonce( $_POST['nonce'], 'oh_doop_ajax_nonce' ) ) {
+            wp_send_json_error( array( 'message' => __( 'Security check failed.', 'delete-old-outofstock-products' ) ) );
+        }
+        
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => __( 'You do not have permission to do this.', 'delete-old-outofstock-products' ) ) );
+        }
+        
+        if ( ! class_exists( 'WooCommerce' ) ) {
+            wp_send_json_error( array( 'message' => __( 'WooCommerce is not active.', 'delete-old-outofstock-products' ) ) );
+        }
+        
+        // Get options
+        $options = get_option( DOOP_OPTIONS_KEY, array( 'product_age' => 18 ) );
+        $product_age = isset( $options['product_age'] ) ? absint( $options['product_age'] ) : 18;
+        $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
+        
+        // Get eligible for deletion
+        $eligible_query = new WP_Query( array(
+            'post_type'      => 'product',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'date_query'     => array(
+                array(
+                    'before' => $date_threshold,
+                ),
+            ),
             'meta_query'     => array(
                 array(
                     'key'   => '_stock_status',
@@ -679,7 +829,7 @@ class OH_Delete_Old_Outofstock_Products {
         $instance->ajax_run_deletion();
     }
 
-    //----------------------------------------//
+//----------------------------------------//
     // 2.6 Product Deletion Logic
     //----------------------------------------//
     
@@ -787,7 +937,7 @@ class OH_Delete_Old_Outofstock_Products {
         return $deleted;
     }
 
-    //----------------------------------------//
+//----------------------------------------//
     // 2.7 Attachment Handling Helpers
     //----------------------------------------//
     
@@ -872,196 +1022,47 @@ class OH_Delete_Old_Outofstock_Products {
         
         return false;
     }
-}_status',
-                    'value' => 'outofstock',
-                ),
-            ),
-        ) );
-        $out_of_stock_count = $out_of_stock_query->found_posts;
+}
 
-        // Get number of old products
-        $old_products_query = new WP_Query( array(
-            'post_type'      => 'product',
-            'post_status'    => 'publish',
-            'posts_per_page' => -1,
-            'fields'         => 'ids',
-            'date_query'     => array(
-                array(
-                    'before' => $date_threshold,
-                ),
-            ),
-        ) );
-        $old_products_count = $old_products_query->found_posts;
+//========================================//
+// 3. PLUGIN INITIALIZATION              //
+//========================================//
 
-        // Get eligible for deletion
-        $eligible_query = new WP_Query( array(
-            'post_type'      => 'product',
-            'post_status'    => 'publish',
-            'posts_per_page' => -1,
-            'fields'         => 'ids',
-            'date_query'     => array(
-                array(
-                    'before' => $date_threshold,
-                ),
-            ),
-            'meta_query'     => array(
-                array(
-                    'key'   => '_stock_status',
-                    'value' => 'outofstock',
-                ),
-            ),
-        ) );
-        $eligible_count = $eligible_query->found_posts;
-        
-        // Display the stats
-        ?>
-        <div class="oh-doop-stats">
-            <table class="widefat striped">
-                <tr>
-                    <td><strong><?php esc_html_e( 'Total Products:', 'delete-old-outofstock-products' ); ?></strong></td>
-                    <td><?php echo esc_html( $total_published ); ?></td>
-                </tr>
-                <tr>
-                    <td><strong><?php esc_html_e( 'Out of Stock Products:', 'delete-old-outofstock-products' ); ?></strong></td>
-                    <td><?php echo esc_html( $out_of_stock_count ); ?></td>
-                </tr>
-                <tr>
-                    <td><strong><?php 
-                        /* translators: %d: product age in months */
-                        printf( esc_html__( 'Products Older Than %d Months:', 'delete-old-outofstock-products' ), $product_age ); 
-                    ?></strong></td>
-                    <td><?php echo esc_html( $old_products_count ); ?></td>
-                </tr>
-                <tr>
-                    <td style="background-color: #fef1f1;"><strong><?php esc_html_e( 'Products Eligible for Deletion:', 'delete-old-outofstock-products' ); ?></strong></td>
-                    <td style="background-color: #fef1f1;"><strong><?php echo esc_html( $eligible_count ); ?></strong></td>
-                </tr>
-            </table>
-            <p class="description">
-                <?php esc_html_e( 'The "Products Eligible for Deletion" count shows how many products will be deleted on the next automatic run.', 'delete-old-outofstock-products' ); ?>
-            </p>
-        </div>
-        <?php
+/**
+ * Check if WooCommerce is active
+ * 
+ * @return bool True if WooCommerce is active
+ */
+function oh_doop_is_woocommerce_active() {
+    return class_exists( 'WooCommerce' );
+}
+
+/**
+ * Display admin notice if WooCommerce is not active
+ */
+function oh_doop_admin_notice() {
+    ?>
+    <div class="notice notice-warning is-dismissible">
+        <p><?php esc_html_e( 'Delete Old Out-of-Stock Products requires WooCommerce to be installed and activated.', 'delete-old-outofstock-products' ); ?></p>
+    </div>
+    <?php
+}
+
+/**
+ * Initialize the plugin
+ */
+function oh_doop_init() {
+    // Check if WooCommerce is active
+    if ( ! oh_doop_is_woocommerce_active() ) {
+        add_action( 'admin_notices', 'oh_doop_admin_notice' );
+        return;
     }
-
-    /**
-     * Section description callback
-     */
-    public function section_callback() {
-        echo '<p>' . esc_html__( 'Configure the settings for automatic deletion of old out-of-stock products.', 'delete-old-outofstock-products' ) . '</p>';
-    }
-
-    /**
-     * Product age field callback
-     */
-    public function product_age_callback() {
-        $product_age = isset( $this->options['product_age'] ) ? $this->options['product_age'] : 18;
-        ?>
-        <input type="number" id="product_age" name="<?php echo esc_attr( DOOP_OPTIONS_KEY ); ?>[product_age]" value="<?php echo esc_attr( $product_age ); ?>" min="1" step="1" />
-        <p class="description"><?php esc_html_e( 'Products older than this many months will be deleted if they are out of stock.', 'delete-old-outofstock-products' ); ?></p>
-        <?php
-    }
-
-    /**
-     * Delete images checkbox callback
-     */
-    public function delete_images_callback() {
-        $delete_images = isset( $this->options['delete_images'] ) ? $this->options['delete_images'] : 'yes';
-        ?>
-        <label for="delete_images">
-            <input type="checkbox" id="delete_images" name="<?php echo esc_attr( DOOP_OPTIONS_KEY ); ?>[delete_images]" <?php checked( $delete_images, 'yes' ); ?> />
-            <?php esc_html_e( 'Delete associated product images when deleting products', 'delete-old-outofstock-products' ); ?>
-        </label>
-        <p class="description"><?php esc_html_e( 'This will delete featured images and gallery images associated with the product.', 'delete-old-outofstock-products' ); ?></p>
-        <?php
-    }
-
-    /**
-     * Render settings page
-     */
-    public function render_settings_page() {
-        if ( ! current_user_can( 'manage_options' ) ) {
-            return;
-        }
-        ?>
-        <div class="wrap">
-            <h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
-            
-            <?php if ( isset( $_GET['deleted'] ) && $_GET['deleted'] > 0 ) : ?>
-                <div class="notice notice-success">
-                    <p>
-                        <?php 
-                        /* translators: %d: number of products deleted */
-                        printf( 
-                            esc_html__( 'Product cleanup completed. %d products were deleted.', 'delete-old-outofstock-products' ), 
-                            intval( $_GET['deleted'] ) 
-                        ); 
-                        ?>
-                    </p>
-                </div>
-            <?php endif; ?>
-            
-            <form method="post" action="options.php">
-                <?php
-                settings_fields( 'doop_settings_group' );
-                do_settings_sections( 'doop-settings' );
-                submit_button();
-                ?>
-            </form>
-            
-            <div class="oh-doop-manual-run">
-                <hr />
-                <h2><?php esc_html_e( 'Manual Run', 'delete-old-outofstock-products' ); ?></h2>
-                <p><?php esc_html_e( 'Click the button below to manually run the deletion process right now.', 'delete-old-outofstock-products' ); ?></p>
-                <form method="post" action="<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>" id="oh-doop-run-form">
-                    <input type="hidden" name="action" value="oh_run_product_deletion">
-                    <?php wp_nonce_field( 'oh_run_product_deletion_nonce', 'oh_nonce' ); ?>
-                    <?php submit_button( __( 'Run Product Cleanup Now', 'delete-old-outofstock-products' ), 'primary', 'run_now', false ); ?>
-                    <span class="spinner oh-doop-progress-spinner"></span>
-                </form>
-                <div class="oh-doop-progress-status"></div>
-            </div>
-        </div>
-        <?php
-    }
-
-    //----------------------------------------//
-    // 2.5 AJAX Handlers
-    //----------------------------------------//
     
-    /**
-     * Get count of eligible products via AJAX
-     */
-    public function ajax_get_eligible_count() {
-        // Check nonce for security
-        if ( ! isset( $_POST['nonce'] ) || ! wp_verify_nonce( $_POST['nonce'], 'oh_doop_ajax_nonce' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Security check failed.', 'delete-old-outofstock-products' ) ) );
-        }
-        
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( array( 'message' => __( 'You do not have permission to do this.', 'delete-old-outofstock-products' ) ) );
-        }
-        
-        if ( ! class_exists( 'WooCommerce' ) ) {
-            wp_send_json_error( array( 'message' => __( 'WooCommerce is not active.', 'delete-old-outofstock-products' ) ) );
-        }
-        
-        // Get options
-        $options = get_option( DOOP_OPTIONS_KEY, array( 'product_age' => 18 ) );
-        $product_age = isset( $options['product_age'] ) ? absint( $options['product_age'] ) : 18;
-        $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
-        
-        // Get eligible for deletion
-        $eligible_query = new WP_Query( array(
-            'post_type'      => 'product',
-            'post_status'    => 'publish',
-            'posts_per_page' => -1,
-            'fields'         => 'ids',
-            'date_query'     => array(
-                array(
-                    'before' => $date_threshold,
-                ),
-            ),
-            'meta_query'     => array(
-                array(
-                    'key'   => '_stock
+    // Initialize the plugin
+    OH_Delete_Old_Outofstock_Products::get_instance();
+}
+add_action( 'plugins_loaded', 'oh_doop_init' );
+
+// AJAX handlers
+add_action( 'wp_ajax_oh_doop_get_eligible_count', array( 'OH_Delete_Old_Outofstock_Products', 'ajax_get_eligible_count_static' ) );
+add_action( 'wp_ajax_oh_run_product_deletion', array( 'OH_Delete_Old_Outofstock_Products', 'ajax_run_deletion_static' ) );
