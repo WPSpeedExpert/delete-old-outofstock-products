@@ -11,13 +11,35 @@
  * License URI:        https://www.gnu.org/licenses/gpl-2.0.html
  * GitHub Plugin URI:  https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * GitHub Branch:      main
+ *
+ * Table of Contents:
+ *
+ * 1. BASIC SETUP
+ *   1.1 Plugin Security
+ *   1.2 Constants Definition
+ *
+ * 2. MAIN PLUGIN CLASS
+ *   2.1 Class Properties
+ *   2.2 Class Initialization
+ *   2.3 Core Setup
+ *   2.4 Admin Interface
+ *   2.5 Product Deletion Logic
+ *   2.6 Attachment Handling Helpers
+ *
+ * 3. PLUGIN INITIALIZATION
  */
 
+//========================================//
+// 1. BASIC SETUP                        //
+//========================================//
+
+// 1.1 Plugin Security
 // Exit if accessed directly.
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+// 1.2 Constants Definition
 define( 'DOOP_VERSION', '1.3.0' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
@@ -25,11 +47,19 @@ define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'DOOP_CRON_HOOK', 'doop_cron_delete_old_products' );
 define( 'DOOP_OPTIONS_KEY', 'oh_doop_options' );
 
+//========================================//
+// 2. MAIN PLUGIN CLASS                  //
+//========================================//
+
 /**
  * Class to manage plugin functionality
  */
 class OH_Delete_Old_Outofstock_Products {
 
+    //----------------------------------------//
+    // 2.1 Class Properties
+    //----------------------------------------//
+    
     /**
      * Plugin instance
      *
@@ -44,6 +74,10 @@ class OH_Delete_Old_Outofstock_Products {
      */
     private $options;
 
+    //----------------------------------------//
+    // 2.2 Class Initialization
+    //----------------------------------------//
+    
     /**
      * Get single instance of the plugin
      *
@@ -83,6 +117,10 @@ class OH_Delete_Old_Outofstock_Products {
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_scripts' ) );
     }
 
+    //----------------------------------------//
+    // 2.3 Core Setup
+    //----------------------------------------//
+    
     /**
      * Set default options
      */
@@ -124,6 +162,10 @@ class OH_Delete_Old_Outofstock_Products {
         }
     }
 
+    //----------------------------------------//
+    // 2.4 Admin Interface
+    //----------------------------------------//
+    
     /**
      * Enqueue admin scripts
      * 
@@ -506,6 +548,10 @@ class OH_Delete_Old_Outofstock_Products {
         }
     }
 
+    //----------------------------------------//
+    // 2.5 Product Deletion Logic
+    //----------------------------------------//
+    
     /**
      * Delete out-of-stock WooCommerce products older than the configured age, including images.
      * 
@@ -610,6 +656,10 @@ class OH_Delete_Old_Outofstock_Products {
         return $deleted;
     }
 
+    //----------------------------------------//
+    // 2.6 Attachment Handling Helpers
+    //----------------------------------------//
+    
     /**
      * Check if the given URL is a placeholder image
      *
@@ -693,7 +743,13 @@ class OH_Delete_Old_Outofstock_Products {
     }
 }
 
-// Initialize the plugin
+//========================================//
+// 3. PLUGIN INITIALIZATION              //
+//========================================//
+
+/**
+ * Initialize the plugin
+ */
 function oh_doop_init() {
     OH_Delete_Old_Outofstock_Products::get_instance();
 }
