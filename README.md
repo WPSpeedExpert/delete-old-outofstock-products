@@ -13,7 +13,7 @@ Automatically delete WooCommerce products that are **out of stock** and **older 
 - **Protects WooCommerce placeholder images** from being deleted.
 - **Preserves images used by multiple products** or posts.
 - Shows helpful **statistics** about eligible products for deletion.
-- Includes option to **manually run** cleanup with real-time progress tracking.
+- Includes option to **manually run** cleanup with status feedback.
 - Simple configuration—just install, activate, and set your preferences.
 - Fully compatible with the latest WooCommerce features, including HPOS.
 - Clean activation and uninstallation, with scheduled events properly removed.
@@ -59,10 +59,7 @@ The settings page also shows helpful statistics:
 - Number of products older than your configured threshold
 - Number of products eligible for deletion (both out of stock AND old)
 
-You can also trigger a manual cleanup by clicking the "Run Product Cleanup Now" button at the bottom of the settings page. The process will display a real-time progress bar showing:
-- Percentage complete
-- Number of products processed
-- Number of products deleted
+You can also trigger a manual cleanup by clicking the "Run Product Cleanup Now" button at the bottom of the settings page.
 
 ---
 
@@ -70,7 +67,7 @@ You can also trigger a manual cleanup by clicking the "Run Product Cleanup Now" 
 - Works only if **WooCommerce is active**.
 - Only deletes products that are **both out of stock AND older than the configured age**.
 - WooCommerce placeholder images are **protected from deletion**.
-- Images used by multiple products or in post content are **preserved**.
+- Images used in multiple products or in post content are **preserved**.
 - Uses **memory-efficient batch processing** to handle large stores.
 - Deactivation removes the scheduled cron job.
 - Uninstallation removes the cron job and all plugin settings.
