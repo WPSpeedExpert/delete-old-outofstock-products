@@ -3,7 +3,7 @@
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than a configurable time period, including their images.
- * Version:            2.1.6
+ * Version:            2.1.7
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
@@ -40,7 +40,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // 1.2 Constants Definition
-define( 'DOOP_VERSION', '2.1.6' );
+define( 'DOOP_VERSION', '2.1.7' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -195,10 +195,14 @@ class OH_Delete_Old_Outofstock_Products {
             ) );
         }
 
-        // Schedule the cron event
-        if ( ! wp_next_scheduled( DOOP_CRON_HOOK ) ) {
-            wp_schedule_event( time(), 'daily', DOOP_CRON_HOOK );
+        // Clear any existing scheduled events first to avoid duplicates
+        $timestamp = wp_next_scheduled( DOOP_CRON_HOOK );
+        if ( $timestamp ) {
+            wp_unschedule_event( $timestamp, DOOP_CRON_HOOK );
         }
+
+        // Schedule the cron event
+        wp_schedule_event( time(), 'daily', DOOP_CRON_HOOK );
         
         // Initialize the last cron time if needed
         if ( ! get_option( 'oh_doop_last_cron_time' ) ) {
@@ -523,13 +527,27 @@ class OH_Delete_Old_Outofstock_Products {
             @ini_set('max_execution_time', $original_max_time);
         }
         
-        // Redirect back to the settings page with completion status and deleted count
-        wp_safe_redirect( add_query_arg( 
+        // Make sure this redirects even if the browser tries to cache
+        nocache_headers();
+        
+        // Use JavaScript to ensure the redirect happens
+        echo '<script>window.location = "' . esc_url(add_query_arg(
             array(
                 'deletion_status' => 'completed',
-                'deleted' => $deleted_count
-            ), 
-            admin_url( 'admin.php?page=doop-settings' ) 
+                'deleted' => $deleted_count,
+                't' => time() // Add timestamp to prevent caching
+            ),
+            admin_url('admin.php?page=doop-settings')
+        )) . '";</script>';
+        
+        // Also do the server-side redirect as a fallback
+        wp_safe_redirect(add_query_arg(
+            array(
+                'deletion_status' => 'completed',
+                'deleted' => $deleted_count,
+                't' => time() // Add timestamp to prevent caching
+            ),
+            admin_url('admin.php?page=doop-settings')
         ));
         exit;
     }
@@ -659,7 +677,16 @@ class OH_Delete_Old_Outofstock_Products {
                                 if ($next_scheduled) {
                                     echo esc_html( get_date_from_gmt( date( 'Y-m-d H:i:s', $next_scheduled ), 'F j, Y, g:i a' ) );
                                 } else {
-                                    esc_html_e( 'Not scheduled - please deactivate and reactivate the plugin', 'delete-old-outofstock-products' );
+                                    // Force reschedule if not found
+                                    wp_schedule_event( time(), 'daily', DOOP_CRON_HOOK );
+                                    $next_scheduled = wp_next_scheduled( DOOP_CRON_HOOK );
+                                    
+                                    if ($next_scheduled) {
+                                        echo esc_html( get_date_from_gmt( date( 'Y-m-d H:i:s', $next_scheduled ), 'F j, Y, g:i a' ) );
+                                        echo ' <em>' . esc_html__( '(just scheduled)', 'delete-old-outofstock-products' ) . '</em>';
+                                    } else {
+                                        esc_html_e( 'Unable to schedule cron - please check your WordPress configuration', 'delete-old-outofstock-products' );
+                                    }
                                 }
                                 ?>
                             </td>
