@@ -3,7 +3,7 @@
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than a configurable time period, including their images.
- * Version:            2.1.1
+ * Version:            2.1.2
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
@@ -40,7 +40,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // 1.2 Constants Definition
-define( 'DOOP_VERSION', '2.1.0' );
+define( 'DOOP_VERSION', '2.1.2' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -133,6 +133,11 @@ class OH_Delete_Old_Outofstock_Products {
             }
             .oh-doop-stats td {
                 padding: 10px 15px;
+            }
+            .oh-doop-description {
+                max-width: 600px;
+                line-height: 1.5;
+                margin-top: 6px;
             }
         ' );
     }
@@ -409,7 +414,7 @@ class OH_Delete_Old_Outofstock_Products {
             <input type="checkbox" id="delete_images" name="<?php echo esc_attr( DOOP_OPTIONS_KEY ); ?>[delete_images]" <?php checked( $delete_images, 'yes' ); ?> />
             <?php esc_html_e( 'Delete associated product images when deleting products', 'delete-old-outofstock-products' ); ?>
         </label>
-        <p class="description">
+        <p class="description oh-doop-description">
             <?php esc_html_e( 'This will delete featured images and gallery images associated with the product. The plugin will automatically skip placeholder images and any images that are used by other products or posts.', 'delete-old-outofstock-products' ); ?>
         </p>
         <?php
@@ -431,15 +436,11 @@ class OH_Delete_Old_Outofstock_Products {
         // Set a flag that the process is running
         update_option( 'oh_doop_deletion_running', time() );
         
-        // Force the cron to run immediately by directly calling the function
-        // This is more reliable than using wp_schedule_single_event
-        oh_doop_process_background_deletion();
+        // Schedule the immediate background task
+        wp_schedule_single_event( time(), 'oh_doop_background_deletion' );
         
-        // Get the result count that was just stored by the function
-        $deleted_count = get_option( 'oh_doop_last_run_count', 0 );
-        
-        // Redirect back to the settings page with the results
-        wp_safe_redirect( add_query_arg( 'deletion_status', 'completed', add_query_arg( 'deleted', $deleted_count, admin_url( 'admin.php?page=doop-settings' ) ) ) );
+        // Redirect back to the settings page with running status
+        wp_safe_redirect( add_query_arg( 'deletion_status', 'running', admin_url( 'admin.php?page=doop-settings' ) ) );
         exit;
     }
 
@@ -454,6 +455,7 @@ class OH_Delete_Old_Outofstock_Products {
         // Check if process is running
         $is_running = get_option( 'oh_doop_deletion_running', false );
         $deletion_status = isset( $_GET['deletion_status'] ) ? sanitize_text_field( $_GET['deletion_status'] ) : '';
+        $deleted_count = isset( $_GET['deleted'] ) ? intval( $_GET['deleted'] ) : false;
         $last_run_count = get_option( 'oh_doop_last_run_count', false );
         
         ?>
@@ -489,6 +491,8 @@ class OH_Delete_Old_Outofstock_Products {
                     <?php
                 }
             } elseif ( 'running' === $deletion_status ) {
+                // Update the running flag if coming from manual run button
+                update_option( 'oh_doop_deletion_running', time() );
                 ?>
                 <div class="notice notice-info">
                     <p>
@@ -497,21 +501,25 @@ class OH_Delete_Old_Outofstock_Products {
                     </p>
                 </div>
                 <?php
-            } elseif ( 'completed' === $deletion_status && false !== $last_run_count ) {
-                ?>
-                <div class="notice notice-success">
-                    <p>
-                        <?php 
-                        printf( 
-                            esc_html__( 'Product cleanup completed. %d products were deleted.', 'delete-old-outofstock-products' ), 
-                            intval( $last_run_count )
-                        ); 
-                        ?>
-                    </p>
-                </div>
-                <?php
-                // Clear the last run count after showing it
-                delete_option( 'oh_doop_last_run_count' );
+            } elseif ( 'completed' === $deletion_status ) {
+                // Show completion message with count from URL parameter or last stored count
+                $count = false !== $deleted_count ? $deleted_count : $last_run_count;
+                if (false !== $count) {
+                    ?>
+                    <div class="notice notice-success">
+                        <p>
+                            <?php 
+                            printf( 
+                                esc_html__( 'Product cleanup completed. %d products were deleted.', 'delete-old-outofstock-products' ), 
+                                intval( $count )
+                            ); 
+                            ?>
+                        </p>
+                    </div>
+                    <?php
+                    // Clear the last run count after showing it
+                    delete_option( 'oh_doop_last_run_count' );
+                }
             }
             ?>
             
@@ -773,8 +781,7 @@ function oh_doop_admin_notice() {
     ?>
     <div class="notice notice-warning is-dismissible">
         <p><?php esc_html_e( 'Delete Old Out-of-Stock Products requires WooCommerce to be installed and activated.', 'delete-old-outofstock-products' ); ?></p>
-
-</div>
+    </div>
     <?php
 }
 
@@ -792,14 +799,8 @@ function oh_doop_process_background_deletion() {
     // Get the plugin instance
     $plugin_instance = OH_Delete_Old_Outofstock_Products::get_instance();
     
-    // Add error log for debugging
-    error_log('Running background deletion process for old out-of-stock products');
-    
     // Run the deletion process
     $deleted_count = $plugin_instance->delete_old_out_of_stock_products();
-    
-    // Add error log for completion
-    error_log("Completed deletion process. Deleted $deleted_count products.");
     
     // Store the count of deleted products
     update_option('oh_doop_last_run_count', $deleted_count);
@@ -829,7 +830,7 @@ function oh_doop_check_deletion_results() {
             delete_option( 'oh_doop_deletion_running' );
             
             // Redirect to show results
-            wp_safe_redirect( add_query_arg( 'deletion_status', 'completed', admin_url( 'admin.php?page=doop-settings' ) ) );
+            wp_safe_redirect( add_query_arg( 'deletion_status', 'completed', add_query_arg( 'deleted', $last_run_count, admin_url( 'admin.php?page=doop-settings' ) ) ) );
             exit;
         }
     }
