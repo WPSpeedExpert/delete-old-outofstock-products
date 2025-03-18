@@ -409,7 +409,9 @@ class OH_Delete_Old_Outofstock_Products {
             <input type="checkbox" id="delete_images" name="<?php echo esc_attr( DOOP_OPTIONS_KEY ); ?>[delete_images]" <?php checked( $delete_images, 'yes' ); ?> />
             <?php esc_html_e( 'Delete associated product images when deleting products', 'delete-old-outofstock-products' ); ?>
         </label>
-        <p class="description"><?php esc_html_e( 'This will delete featured images and gallery images associated with the product.', 'delete-old-outofstock-products' ); ?></p>
+        <p class="description">
+            <?php esc_html_e( 'This will delete featured images and gallery images associated with the product. The plugin will automatically skip placeholder images and any images that are used by other products or posts.', 'delete-old-outofstock-products' ); ?>
+        </p>
         <?php
     }
 
@@ -426,16 +428,18 @@ class OH_Delete_Old_Outofstock_Products {
             wp_die( esc_html__( 'Security check failed. Please try again.', 'delete-old-outofstock-products' ) );
         }
         
-        // Schedule a single event to run immediately (in the background via wp-cron)
-        if ( ! wp_next_scheduled( 'oh_doop_background_deletion' ) ) {
-            wp_schedule_single_event( time(), 'oh_doop_background_deletion' );
-        }
-        
         // Set a flag that the process is running
         update_option( 'oh_doop_deletion_running', time() );
         
-        // Redirect back to the settings page with an "in progress" message
-        wp_safe_redirect( add_query_arg( 'deletion_status', 'running', admin_url( 'admin.php?page=doop-settings' ) ) );
+        // Force the cron to run immediately by directly calling the function
+        // This is more reliable than using wp_schedule_single_event
+        oh_doop_process_background_deletion();
+        
+        // Get the result count that was just stored by the function
+        $deleted_count = get_option( 'oh_doop_last_run_count', 0 );
+        
+        // Redirect back to the settings page with the results
+        wp_safe_redirect( add_query_arg( 'deletion_status', 'completed', add_query_arg( 'deleted', $deleted_count, admin_url( 'admin.php?page=doop-settings' ) ) ) );
         exit;
     }
 
@@ -779,25 +783,33 @@ function oh_doop_admin_notice() {
  */
 function oh_doop_process_background_deletion() {
     // Check if a process is already running
-    $is_running = get_option( 'oh_doop_deletion_running', false );
+    $is_running = get_option('oh_doop_deletion_running', false);
     
-    if ( ! $is_running ) {
+    if (!$is_running) {
         return;
     }
     
     // Get the plugin instance
     $plugin_instance = OH_Delete_Old_Outofstock_Products::get_instance();
     
+    // Add error log for debugging
+    error_log('Running background deletion process for old out-of-stock products');
+    
     // Run the deletion process
     $deleted_count = $plugin_instance->delete_old_out_of_stock_products();
     
+    // Add error log for completion
+    error_log("Completed deletion process. Deleted $deleted_count products.");
+    
     // Store the count of deleted products
-    update_option( 'oh_doop_last_run_count', $deleted_count );
+    update_option('oh_doop_last_run_count', $deleted_count);
     
     // Mark the process as complete
-    delete_option( 'oh_doop_deletion_running' );
+    delete_option('oh_doop_deletion_running');
 }
-add_action( 'oh_doop_background_deletion', 'oh_doop_process_background_deletion' );
+
+// Important fix: This needs to be registered outside any class
+add_action('oh_doop_background_deletion', 'oh_doop_process_background_deletion');
 
 /**
  * Check for deletion results when admin page loads
