@@ -3,7 +3,7 @@
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than a configurable time period, including their images.
- * Version:            2.1.8
+ * Version:            2.1.9
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
@@ -40,7 +40,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // 1.2 Constants Definition
-define( 'DOOP_VERSION', '2.1.8' );
+define( 'DOOP_VERSION', '2.1.9' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -151,8 +151,13 @@ class OH_Delete_Old_Outofstock_Products {
                 margin-top: 15px;
                 margin-bottom: 10px;
             }
+            .oh-doop-cron-info table {
+                width: 100%;
+                max-width: 100%;
+            }
             .oh-doop-manual-run p {
                 margin-top: 15px;
+                margin-bottom: 15px;
             }
         ' );
     }
@@ -468,6 +473,22 @@ class OH_Delete_Old_Outofstock_Products {
             wp_die( esc_html__( 'Security check failed. Please try again.', 'delete-old-outofstock-products' ) );
         }
         
+        // Set a flag that the process is starting
+        update_option( 'oh_doop_deletion_running', time() );
+        
+        // First, redirect to show the "running" status
+        wp_redirect(add_query_arg(
+            array(
+                'page' => 'doop-settings',
+                'deletion_status' => 'running',
+                't' => time() // Add timestamp to prevent caching
+            ),
+            admin_url('admin.php')
+        ));
+        
+        // Flush output buffers to ensure the redirect is sent
+        flush();
+        
         // Get options
         $options = get_option( DOOP_OPTIONS_KEY, array(
             'product_age' => 18,
@@ -500,12 +521,17 @@ class OH_Delete_Old_Outofstock_Products {
         
         // If there are too many products (more than 200), redirect with a warning
         if ($eligible_count > 200) {
-            wp_safe_redirect( add_query_arg( 
+            update_option( 'oh_doop_deletion_running', 0 ); // Clear the running flag
+            
+            // This will be a second redirect, but we won't get here in normal operation
+            wp_redirect(add_query_arg(
                 array(
+                    'page' => 'doop-settings',
                     'deletion_status' => 'too_many',
-                    'count' => $eligible_count
-                ), 
-                admin_url( 'admin.php?page=doop-settings' ) 
+                    'count' => $eligible_count,
+                    't' => time()
+                ),
+                admin_url('admin.php')
             ));
             exit;
         }
@@ -521,22 +547,14 @@ class OH_Delete_Old_Outofstock_Products {
         
         // Store the count of deleted products
         update_option( 'oh_doop_last_run_count', $deleted_count );
+        update_option( 'oh_doop_deletion_running', 0 ); // Clear the running flag
         
         // Restore original max execution time if we changed it
         if ($original_max_time != ini_get('max_execution_time') && $original_max_time != 0) {
             @ini_set('max_execution_time', $original_max_time);
         }
         
-        // Redirect to results page directly with HTTP redirect
-        wp_redirect(add_query_arg(
-            array(
-                'page' => 'doop-settings',
-                'deletion_status' => 'completed',
-                'deleted' => $deleted_count,
-                't' => time() // Add timestamp to prevent caching
-            ),
-            admin_url('admin.php')
-        ));
+        // Exit to let the user see the "running" status first
         exit;
     }
 
@@ -553,6 +571,21 @@ class OH_Delete_Old_Outofstock_Products {
         $deletion_status = isset( $_GET['deletion_status'] ) ? sanitize_text_field( $_GET['deletion_status'] ) : '';
         $deleted_count = isset( $_GET['deleted'] ) ? intval( $_GET['deleted'] ) : false;
         $last_run_count = get_option( 'oh_doop_last_run_count', false );
+        
+        // Check if a completed process needs to be shown
+        if ($is_running === 0 && $last_run_count !== false && $deletion_status === 'running') {
+            // Process completed while we were on the page, redirect to completion
+            wp_redirect(add_query_arg(
+                array(
+                    'page' => 'doop-settings',
+                    'deletion_status' => 'completed',
+                    'deleted' => $last_run_count,
+                    't' => time()
+                ),
+                admin_url('admin.php')
+            ));
+            exit;
+        }
         
         ?>
         <div class="wrap">
@@ -576,7 +609,7 @@ class OH_Delete_Old_Outofstock_Products {
                     <div class="notice notice-info">
                         <p>
                             <strong><?php esc_html_e( 'Product cleanup is running in the background.', 'delete-old-outofstock-products' ); ?></strong>
-                            <?php esc_html_e( 'You can continue using your site normally. This page will show results when you return later.', 'delete-old-outofstock-products' ); ?>
+                            <?php esc_html_e( 'Please wait while products are being deleted. This page will refresh automatically when the process completes.', 'delete-old-outofstock-products' ); ?>
                         </p>
                         <p>
                             <?php esc_html_e( 'Started: ', 'delete-old-outofstock-products' ); ?>
@@ -584,6 +617,13 @@ class OH_Delete_Old_Outofstock_Products {
                             <?php esc_html_e( ' ago', 'delete-old-outofstock-products' ); ?>
                         </p>
                     </div>
+                    
+                    <script>
+                        // Auto-refresh the page every 5 seconds to check for completion
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 5000);
+                    </script>
                     <?php
                 }
             } elseif ( 'running' === $deletion_status ) {
@@ -592,10 +632,17 @@ class OH_Delete_Old_Outofstock_Products {
                 ?>
                 <div class="notice notice-info">
                     <p>
-                        <strong><?php esc_html_e( 'Product cleanup has started in the background.', 'delete-old-outofstock-products' ); ?></strong>
-                        <?php esc_html_e( 'You can continue using your site normally. This page will show results when you return later.', 'delete-old-outofstock-products' ); ?>
+                        <strong><?php esc_html_e( 'Product cleanup has started.', 'delete-old-outofstock-products' ); ?></strong>
+                        <?php esc_html_e( 'Please wait while products are being deleted. This page will refresh automatically when the process completes.', 'delete-old-outofstock-products' ); ?>
                     </p>
                 </div>
+                
+                <script>
+                    // Auto-refresh the page every 5 seconds to check for completion
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 5000);
+                </script>
                 <?php
             } elseif ( 'completed' === $deletion_status ) {
                 // Show completion message with count from URL parameter or last stored count
@@ -655,8 +702,7 @@ class OH_Delete_Old_Outofstock_Products {
                 
                 <div class="oh-doop-cron-info">
                     <h4><?php esc_html_e( 'Scheduled Cleanup Information', 'delete-old-outofstock-products' ); ?></h4>
-                    <table class="widefat striped" style="width: 50%; max-width: 600px; margin-bottom: 20px;">
-                        
+                    <table class="widefat striped">
                         <tr>
                             <td><strong><?php esc_html_e( 'Next Scheduled Run:', 'delete-old-outofstock-products' ); ?></strong></td>
                             <td>
@@ -1010,7 +1056,7 @@ function oh_doop_process_background_deletion() {
     update_option('oh_doop_last_run_count', $deleted_count);
     
     // Mark the process as complete
-    delete_option('oh_doop_deletion_running');
+    update_option('oh_doop_deletion_running', 0);
     
     // Log for debugging
     error_log('Completed background deletion of ' . $deleted_count . ' products');
@@ -1049,15 +1095,13 @@ function oh_doop_check_deletion_results() {
         $last_run_count = get_option( 'oh_doop_last_run_count', false );
         
         // If the process was running but now we have results and not showing any status
-        if ( $was_running && false !== $last_run_count && ! isset( $_GET['deletion_status'] ) ) {
-            // Delete the running flag
-            delete_option( 'oh_doop_deletion_running' );
-            
+        if ( $was_running === 0 && false !== $last_run_count && ! isset( $_GET['deletion_status'] ) ) {
             // Redirect to show results
             wp_safe_redirect( add_query_arg( 
                 array(
                     'deletion_status' => 'completed',
-                    'deleted' => $last_run_count
+                    'deleted' => $last_run_count,
+                    't' => time() // Add timestamp to prevent caching
                 ),
                 admin_url( 'admin.php?page=doop-settings' )
             ));
