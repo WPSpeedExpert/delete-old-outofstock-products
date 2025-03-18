@@ -3,7 +3,7 @@
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than a configurable time period, including their images.
- * Version:            2.1.7
+ * Version:            2.1.8
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
@@ -40,7 +40,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // 1.2 Constants Definition
-define( 'DOOP_VERSION', '2.1.7' );
+define( 'DOOP_VERSION', '2.1.8' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -527,27 +527,15 @@ class OH_Delete_Old_Outofstock_Products {
             @ini_set('max_execution_time', $original_max_time);
         }
         
-        // Make sure this redirects even if the browser tries to cache
-        nocache_headers();
-        
-        // Use JavaScript to ensure the redirect happens
-        echo '<script>window.location = "' . esc_url(add_query_arg(
+        // Redirect to results page directly with HTTP redirect
+        wp_redirect(add_query_arg(
             array(
+                'page' => 'doop-settings',
                 'deletion_status' => 'completed',
                 'deleted' => $deleted_count,
                 't' => time() // Add timestamp to prevent caching
             ),
-            admin_url('admin.php?page=doop-settings')
-        )) . '";</script>';
-        
-        // Also do the server-side redirect as a fallback
-        wp_safe_redirect(add_query_arg(
-            array(
-                'deletion_status' => 'completed',
-                'deleted' => $deleted_count,
-                't' => time() // Add timestamp to prevent caching
-            ),
-            admin_url('admin.php?page=doop-settings')
+            admin_url('admin.php')
         ));
         exit;
     }
@@ -656,8 +644,7 @@ class OH_Delete_Old_Outofstock_Products {
                 ?>
             </form>
             
-            <div class="oh-doop-manual-run">
-                <hr />
+            <div class="oh-doop-manual-run card">
                 <h2><?php esc_html_e( 'Manual Run', 'delete-old-outofstock-products' ); ?></h2>
                 
                 <?php
@@ -676,6 +663,9 @@ class OH_Delete_Old_Outofstock_Products {
                                 <?php 
                                 if ($next_scheduled) {
                                     echo esc_html( get_date_from_gmt( date( 'Y-m-d H:i:s', $next_scheduled ), 'F j, Y, g:i a' ) );
+                                    if (isset($_GET['freshly_scheduled'])) {
+                                        echo ' <em>' . esc_html__( '(just scheduled)', 'delete-old-outofstock-products' ) . '</em>';
+                                    }
                                 } else {
                                     // Force reschedule if not found
                                     wp_schedule_event( time(), 'daily', DOOP_CRON_HOOK );
@@ -684,6 +674,11 @@ class OH_Delete_Old_Outofstock_Products {
                                     if ($next_scheduled) {
                                         echo esc_html( get_date_from_gmt( date( 'Y-m-d H:i:s', $next_scheduled ), 'F j, Y, g:i a' ) );
                                         echo ' <em>' . esc_html__( '(just scheduled)', 'delete-old-outofstock-products' ) . '</em>';
+                                        
+                                        // Refresh the page to update the UI
+                                        echo '<meta http-equiv="refresh" content="0;URL=\'' . 
+                                            esc_url(add_query_arg('freshly_scheduled', '1', admin_url('admin.php?page=doop-settings'))) . 
+                                            '\'" />';
                                     } else {
                                         esc_html_e( 'Unable to schedule cron - please check your WordPress configuration', 'delete-old-outofstock-products' );
                                     }
@@ -737,23 +732,6 @@ class OH_Delete_Old_Outofstock_Products {
                         <?php submit_button( __( 'Run Product Cleanup Now', 'delete-old-outofstock-products' ), 'primary', 'run_now', false ); ?>
                     </form>
                 <?php endif; ?>
-            </div>    
-                    
-                ?>
-                
-                <p><?php esc_html_e( 'Click the button below to manually run the deletion process.', 'delete-old-outofstock-products' ); ?></p>
-                <p><em><?php esc_html_e( 'Note: The cleanup process runs immediately when using this button.', 'delete-old-outofstock-products' ); ?></em></p>
-                
-                <?php if ( $is_running ) : ?>
-                    <p><strong><?php esc_html_e( 'A cleanup process is already running. Please wait for it to complete.', 'delete-old-outofstock-products' ); ?></strong></p>
-                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=doop-settings' ) ); ?>" class="button"><?php esc_html_e( 'Refresh Status', 'delete-old-outofstock-products' ); ?></a>
-                <?php else : ?>
-                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-                        <input type="hidden" name="action" value="oh_run_product_deletion">
-                        <?php wp_nonce_field( 'oh_run_product_deletion_nonce', 'oh_nonce' ); ?>
-                        <?php submit_button( __( 'Run Product Cleanup Now', 'delete-old-outofstock-products' ), 'primary', 'run_now', false ); ?>
-                    </form>
-                <?php endif; ?>
             </div>
         </div>
         <style>
@@ -766,6 +744,17 @@ class OH_Delete_Old_Outofstock_Products {
             }
             .card h2 {
                 margin-top: 0;
+            }
+            .oh-doop-manual-run p {
+                margin-top: 15px;
+                margin-bottom: 15px;
+            }
+            .oh-doop-cron-info {
+                margin-bottom: 30px;
+            }
+            .oh-doop-cron-info h4 {
+                margin-top: 0;
+                margin-bottom: 10px;
             }
         </style>
         <?php
