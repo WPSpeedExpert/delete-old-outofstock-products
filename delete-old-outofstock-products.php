@@ -3,7 +3,7 @@
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than a configurable time period, including their images.
- * Version:            2.1.0
+ * Version:            2.1.1
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
