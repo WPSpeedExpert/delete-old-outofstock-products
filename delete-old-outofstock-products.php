@@ -3,7 +3,7 @@
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than a configurable time period, including their images.
- * Version:            2.2.1
+ * Version:            2.2.2
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
@@ -11,55 +11,25 @@
  * License URI:        https://www.gnu.org/licenses/gpl-3.0.html
  * GitHub Plugin URI:  https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * GitHub Branch:      main
- *
- * Table of Contents:
- *
- * 1. BASIC SETUP
- *   1.1 Plugin Security
- *   1.2 Constants Definition
- *
- * 2. MAIN PLUGIN CLASS
- *   2.1 Class Properties
- *   2.2 Class Initialization
- *   2.3 Core Setup
- *   2.4 Admin Interface
- *   2.5 Product Deletion Logic
- *   2.6 Attachment Handling Helpers
- *
- * 3. PLUGIN INITIALIZATION
  */
 
-//========================================//
-// 1. BASIC SETUP                        //
-//========================================//
-
-// 1.1 Plugin Security
 // Exit if accessed directly.
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-// 1.2 Constants Definition
-define( 'DOOP_VERSION', '2.2.1' );
+// Define plugin constants
+define( 'DOOP_VERSION', '2.2.2' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'DOOP_CRON_HOOK', 'doop_cron_delete_old_products' );
 define( 'DOOP_OPTIONS_KEY', 'oh_doop_options' );
 
-//========================================//
-// 2. MAIN PLUGIN CLASS                  //
-//========================================//
-
 /**
  * Class to manage plugin functionality
  */
 class OH_Delete_Old_Outofstock_Products {
-
-    //----------------------------------------//
-    // 2.1 Class Properties
-    //----------------------------------------//
-    
     /**
      * Plugin instance
      *
@@ -81,10 +51,6 @@ class OH_Delete_Old_Outofstock_Products {
      */
     private $last_cron_time;
 
-    //----------------------------------------//
-    // 2.2 Class Initialization
-    //----------------------------------------//
-    
     /**
      * Get single instance of the plugin
      *
@@ -205,10 +171,6 @@ class OH_Delete_Old_Outofstock_Products {
             }
         ' );
     }
-
-    //----------------------------------------//
-    // 2.3 Core Setup
-    //----------------------------------------//
     
     /**
      * Set default options
@@ -274,10 +236,6 @@ class OH_Delete_Old_Outofstock_Products {
         delete_option( 'oh_doop_last_run_count' );
         // Don't delete oh_doop_last_cron_time - keep this record even when deactivated
     }
-
-    //----------------------------------------//
-    // 2.4 Admin Interface
-    //----------------------------------------//
     
     /**
      * Add settings page
@@ -661,42 +619,9 @@ class OH_Delete_Old_Outofstock_Products {
             </div>
             
             <?php
-            // Show appropriate notices based on status
-            if ( $is_running && $is_running !== 0 ) {
-                // If it's been running for more than 10 minutes, assume it's done or failed
-                $time_elapsed = time() - intval( $is_running );
-                
-                if ( $time_elapsed > 600 ) { // 10 minutes
-                    delete_option( 'oh_doop_deletion_running' );
-                    ?>
-                    <div class="notice notice-warning">
-                        <p><?php esc_html_e( 'The previous cleanup process may have timed out or completed without updating its status. You can try running it again if needed.', 'delete-old-outofstock-products' ); ?></p>
-                    </div>
-                    <?php
-                } else {
-                    ?>
-                    <div class="notice notice-info">
-                        <p>
-                            <strong><?php esc_html_e( 'Product cleanup is running in the background.', 'delete-old-outofstock-products' ); ?></strong>
-                            <?php esc_html_e( 'Please wait while products are being deleted. The status will update automatically.', 'delete-old-outofstock-products' ); ?>
-                        </p>
-                        <p>
-                            <?php esc_html_e( 'Started: ', 'delete-old-outofstock-products' ); ?>
-                            <?php echo esc_html( human_time_diff( intval( $is_running ), time() ) ); ?>
-                            <?php esc_html_e( ' ago', 'delete-old-outofstock-products' ); ?>
-                        </p>
-                    </div>
-                    <?php
-                }
-            } elseif ( 'running' === $deletion_status ) {
-                ?>
-                <div class="notice notice-info">
-                    <p>
-                        <strong><?php esc_html_e( 'Product cleanup has started.', 'delete-old-outofstock-products' ); ?></strong>
-                        <?php esc_html_e( 'Please wait while products are being deleted. The status will update automatically.', 'delete-old-outofstock-products' ); ?>
-                    </p>
-                </div>
-                <?php
+            // Only show one status message, prioritizing AJAX updates
+            if ( ($is_running && $is_running !== 0) || 'running' === $deletion_status ) {
+                // Show nothing here - AJAX will handle the status display
             } elseif ( 'completed' === $deletion_status ) {
                 // Show completion message with count from URL parameter or last stored count
                 $count = false !== $deleted_count ? $deleted_count : $last_run_count;
@@ -836,7 +761,7 @@ class OH_Delete_Old_Outofstock_Products {
             </div>
         </div>
         
-        <?php if ( $is_running && $is_running !== 0 || 'running' === $deletion_status ) : ?>
+        <?php if ( ($is_running && $is_running !== 0) || 'running' === $deletion_status ) : ?>
         <script type="text/javascript">
         jQuery(document).ready(function($) {
             // Create a status container if it doesn't exist
@@ -925,14 +850,24 @@ class OH_Delete_Old_Outofstock_Products {
                 margin-top: 0;
                 margin-bottom: 10px;
             }
+            #oh-process-status {
+                padding: 15px;
+                margin: 15px 0;
+                border-left: 4px solid #00a0d2;
+                background-color: #f7fcff;
+            }
+            #oh-process-status.success {
+                border-left-color: #46b450;
+                background-color: #f7fff7;
+            }
+            #oh-process-status.error {
+                border-left-color: #dc3232;
+                background-color: #fff7f7;
+            }
         </style>
         <?php
     }
 
-    //----------------------------------------//
-    // 2.5 Product Deletion Logic
-    //----------------------------------------//
-    
     /**
      * Delete out-of-stock WooCommerce products older than the configured age, including images.
      * 
@@ -1047,10 +982,6 @@ class OH_Delete_Old_Outofstock_Products {
         return $deleted;
     }
 
-    //----------------------------------------//
-    // 2.6 Attachment Handling Helpers
-    //----------------------------------------//
-    
     /**
      * Check if the given URL is a placeholder image
      *
@@ -1133,10 +1064,6 @@ class OH_Delete_Old_Outofstock_Products {
         return false;
     }
 }
-
-//========================================//
-// 3. PLUGIN INITIALIZATION              //
-//========================================//
 
 /**
  * Check if WooCommerce is active
