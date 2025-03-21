@@ -27,3 +27,17 @@ delete_option( 'oh_doop_last_cron_time' );
 delete_option( 'oh_doop_deletion_running' );
 delete_option( 'oh_doop_last_run_count' );
 delete_option( 'oh_doop_too_many_products' );
+
+// Remove log files
+$upload_dir = wp_upload_dir();
+$log_dir = trailingslashit($upload_dir['basedir']) . 'doop-logs';
+if (file_exists($log_dir)) {
+    $log_files = glob(trailingslashit($log_dir) . '*.txt');
+    if ($log_files) {
+        foreach ($log_files as $file) {
+            @unlink($file);
+        }
+    }
+    @unlink(trailingslashit($log_dir) . '.htaccess');
+    @rmdir($log_dir);
+}
