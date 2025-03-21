@@ -4,8 +4,33 @@
  * Admin UI class for Delete Old Out-of-Stock Products
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.2.3
+ * @version 2.3.0
  * @since 2.2.3
+ */
+
+/**
+ * TABLE OF CONTENTS:
+ *
+ * 1. SETUP & INITIALIZATION
+ *    1.1 Class properties
+ *    1.2 Constructor
+ *    1.3 Default options
+ *
+ * 2. ADMIN INTERFACE
+ *    2.1 Settings page
+ *    2.2 Settings fields and sections
+ *    2.3 Settings sanitization
+ *    2.4 Admin menu
+ *
+ * 3. AJAX & STATUS HANDLING
+ *    3.1 AJAX handlers
+ *    3.2 Status checking
+ *
+ * 4. RENDER FUNCTIONS
+ *    4.1 Main page
+ *    4.2 Stats section
+ *    4.3 Settings sections
+ *    4.4 UI utilities
  */
 
 // Exit if accessed directly.
@@ -17,6 +42,14 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Class to handle admin UI
  */
 class OH_Admin_UI {
+    
+    // 1. SETUP & INITIALIZATION
+    // =================================
+    
+    /**
+     * 1.1 Class properties
+     */
+    
     /**
      * Plugin options
      *
@@ -32,7 +65,7 @@ class OH_Admin_UI {
     private $logger;
     
     /**
-     * Constructor
+     * 1.2 Constructor
      */
     public function __construct() {
         $this->set_default_options();
@@ -45,8 +78,9 @@ class OH_Admin_UI {
         // Add settings link to plugins page
         add_filter( 'plugin_action_links_' . plugin_basename( DOOP_PLUGIN_FILE ), array( $this, 'add_settings_link' ) );
         
-        // Add admin styles
+        // Add admin styles and scripts
         add_action( 'admin_enqueue_scripts', array( $this, 'admin_styles' ) );
+        add_action( 'admin_enqueue_scripts', array( $this, 'admin_scripts' ) );
         
         // AJAX endpoints
         add_action( 'wp_ajax_oh_check_deletion_status', array( $this, 'ajax_check_deletion_status' ) );
@@ -54,7 +88,7 @@ class OH_Admin_UI {
     }
     
     /**
-     * Set default options
+     * 1.3 Set default options
      */
     private function set_default_options() {
         $default_options = array(
@@ -65,15 +99,107 @@ class OH_Admin_UI {
         $this->options = get_option( DOOP_OPTIONS_KEY, $default_options );
     }
     
+    // 2. ADMIN INTERFACE
+    // =================================
+    
     /**
-     * AJAX handler to check deletion status
+     * 2.1 Add settings page
+     */
+    public function add_settings_page() {
+        add_submenu_page(
+            'woocommerce',
+            __( 'Delete Old Products', 'delete-old-outofstock-products' ),
+            __( 'Delete Old Products', 'delete-old-outofstock-products' ),
+            'manage_options',
+            'doop-settings',
+            array( $this, 'render_settings_page' )
+        );
+    }
+    
+    /**
+     * 2.2 Register settings
+     */
+    public function register_settings() {
+        register_setting(
+            'doop_settings_group',
+            DOOP_OPTIONS_KEY,
+            array( $this, 'sanitize_options' )
+        );
+
+        add_settings_section(
+            'doop_stats_section',
+            __( 'Product Statistics', 'delete-old-outofstock-products' ),
+            array( $this, 'stats_section_callback' ),
+            'doop-settings'
+        );
+
+        add_settings_section(
+            'doop_main_section',
+            __( 'Product Deletion Settings', 'delete-old-outofstock-products' ),
+            array( $this, 'section_callback' ),
+            'doop-settings'
+        );
+
+        add_settings_field(
+            'product_age',
+            __( 'Product Age (months)', 'delete-old-outofstock-products' ),
+            array( $this, 'product_age_callback' ),
+            'doop-settings',
+            'doop_main_section'
+        );
+
+        add_settings_field(
+            'delete_images',
+            __( 'Delete Product Images', 'delete-old-outofstock-products' ),
+            array( $this, 'delete_images_callback' ),
+            'doop-settings',
+            'doop_main_section'
+        );
+    }
+    
+    /**
+     * 2.3 Sanitize options
+     */
+    public function sanitize_options( $input ) {
+        $output = array();
+        
+        // Sanitize product age (ensure it's a positive integer)
+        $output['product_age'] = isset( $input['product_age'] ) ? absint( $input['product_age'] ) : 18;
+        if ( $output['product_age'] < 1 ) {
+            $output['product_age'] = 18;
+        }
+        
+        // Sanitize delete images option
+        $output['delete_images'] = isset( $input['delete_images'] ) ? 'yes' : 'no';
+        
+        return $output;
+    }
+    
+    /**
+     * 2.4 Add settings link to plugin action links
+     */
+    public function add_settings_link( $links ) {
+        $settings_link = sprintf(
+            '<a href="%s">%s</a>',
+            esc_url( admin_url( 'admin.php?page=doop-settings' ) ),
+            esc_html__( 'Settings', 'delete-old-outofstock-products' )
+        );
+        array_unshift( $links, $settings_link );
+        return $links;
+    }
+    
+    // 3. AJAX & STATUS HANDLING
+    // =================================
+    
+    /**
+     * 3.1 AJAX handler to check deletion status
      */
     public function ajax_check_deletion_status() {
         // Check nonce for security
         check_ajax_referer( 'oh_doop_ajax_nonce', 'security' );
         
-        $is_running = get_option( 'oh_doop_deletion_running', false );
-        $last_run_count = get_option( 'oh_doop_last_run_count', false );
+        $is_running = get_option( DOOP_PROCESS_OPTION, false );
+        $last_run_count = get_option( DOOP_RESULT_OPTION, false );
         $too_many_count = get_option( 'oh_doop_too_many_products', false );
         
         $response = array(
@@ -90,7 +216,7 @@ class OH_Admin_UI {
     }
     
     /**
-     * AJAX handler to get deletion log content
+     * 3.2 AJAX handler to get deletion log content
      */
     public function ajax_get_deletion_log() {
         // Check nonce for security
@@ -103,8 +229,11 @@ class OH_Admin_UI {
         ));
     }
     
+    // 4. RENDER FUNCTIONS
+    // =================================
+    
     /**
-     * Add admin styles
+     * 4.1 Add admin styles
      */
     public function admin_styles( $hook ) {
         if ( 'woocommerce_page_doop-settings' !== $hook ) {
@@ -169,103 +298,70 @@ class OH_Admin_UI {
             .oh-view-log-btn {
                 margin-top: 10px !important;
             }
+            .oh-status-indicator {
+                display: inline-block;
+                margin-left: 10px;
+            }
+            .oh-status-indicator.running {
+                color: #00a0d2;
+                animation: oh-blink 1s linear infinite;
+            }
+            @keyframes oh-blink {
+                50% { opacity: 0.5; }
+            }
         ' );
     }
     
     /**
-     * Add settings page
+     * 4.2 Add admin scripts
      */
-    public function add_settings_page() {
-        add_submenu_page(
-            'woocommerce',
-            __( 'Delete Old Products', 'delete-old-outofstock-products' ),
-            __( 'Delete Old Products', 'delete-old-outofstock-products' ),
-            'manage_options',
-            'doop-settings',
-            array( $this, 'render_settings_page' )
-        );
-    }
-
-    /**
-     * Register settings
-     */
-    public function register_settings() {
-        register_setting(
-            'doop_settings_group',
-            DOOP_OPTIONS_KEY,
-            array( $this, 'sanitize_options' )
-        );
-
-        add_settings_section(
-            'doop_stats_section',
-            __( 'Product Statistics', 'delete-old-outofstock-products' ),
-            array( $this, 'stats_section_callback' ),
-            'doop-settings'
-        );
-
-        add_settings_section(
-            'doop_main_section',
-            __( 'Product Deletion Settings', 'delete-old-outofstock-products' ),
-            array( $this, 'section_callback' ),
-            'doop-settings'
-        );
-
-        add_settings_field(
-            'product_age',
-            __( 'Product Age (months)', 'delete-old-outofstock-products' ),
-            array( $this, 'product_age_callback' ),
-            'doop-settings',
-            'doop_main_section'
-        );
-
-        add_settings_field(
-            'delete_images',
-            __( 'Delete Product Images', 'delete-old-outofstock-products' ),
-            array( $this, 'delete_images_callback' ),
-            'doop-settings',
-            'doop_main_section'
-        );
-    }
-
-    /**
-     * Sanitize options
-     *
-     * @param array $input The input options.
-     * @return array
-     */
-    public function sanitize_options( $input ) {
-        $output = array();
-        
-        // Sanitize product age (ensure it's a positive integer)
-        $output['product_age'] = isset( $input['product_age'] ) ? absint( $input['product_age'] ) : 18;
-        if ( $output['product_age'] < 1 ) {
-            $output['product_age'] = 18;
+    public function admin_scripts( $hook ) {
+        if ( 'woocommerce_page_doop-settings' !== $hook ) {
+            return;
         }
         
-        // Sanitize delete images option
-        $output['delete_images'] = isset( $input['delete_images'] ) ? 'yes' : 'no';
-        
-        return $output;
-    }
-
-    /**
-     * Add settings link to plugin action links
-     *
-     * @param array $links Existing plugin action links.
-     * @return array Modified plugin action links.
-     */
-    public function add_settings_link( $links ) {
-        $settings_link = sprintf(
-            '<a href="%s">%s</a>',
-            esc_url( admin_url( 'admin.php?page=doop-settings' ) ),
-            esc_html__( 'Settings', 'delete-old-outofstock-products' )
+        wp_enqueue_script(
+            'oh-admin-scripts',
+            DOOP_PLUGIN_URL . 'assets/js/admin.js',
+            array( 'jquery' ),
+            DOOP_VERSION,
+            true
         );
-        array_unshift( $links, $settings_link );
-        return $links;
+        
+        wp_localize_script(
+            'oh-admin-scripts',
+            'ohDoopData',
+            array(
+                'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+                'nonce' => wp_create_nonce( 'oh_doop_ajax_nonce' ),
+                'strings' => array(
+                    'running' => __( 'Process is running...', 'delete-old-outofstock-products' ),
+                    'completed' => __( 'Process completed!', 'delete-old-outofstock-products' ),
+                    'loadingLog' => __( 'Loading log...', 'delete-old-outofstock-products' ),
+                    'noLog' => __( 'No log content available', 'delete-old-outofstock-products' ),
+                    'errorLog' => __( 'Error loading log content', 'delete-old-outofstock-products' ),
+                    'ago' => __( 'ago', 'delete-old-outofstock-products' ),
+                    'productsDeleted' => __( 'products were deleted.', 'delete-old-outofstock-products' ),
+                    'tooMany' => __( 'Too many products eligible for deletion', 'delete-old-outofstock-products' ),
+                    'tooManyMsg' => __( 'products eligible for deletion, which exceeds the safe limit for manual deletion (200).', 'delete-old-outofstock-products' ),
+                    'viewLog' => __( 'View Log', 'delete-old-outofstock-products' ),
+                    'hideLog' => __( 'Hide Log', 'delete-old-outofstock-products' ),
+                    'navigateAway' => __( 'You can navigate away from this page. The process will continue in the background.', 'delete-old-outofstock-products' ),
+                ),
+                'isRunning' => get_option( DOOP_PROCESS_OPTION, false ) && get_option( DOOP_PROCESS_OPTION, false ) !== 0,
+                'deletionStatus' => isset( $_GET['deletion_status'] ) ? sanitize_text_field( $_GET['deletion_status'] ) : '',
+            )
+        );
+    }
+    /**
+     * 4.3 Section description callback
+     */
+    public function section_callback() {
+        echo '<p>' . esc_html__( 'Configure the settings for automatic deletion of old out-of-stock products.', 'delete-old-outofstock-products' ) . '</p>';
     }
 
     /**
-     * Stats section description callback
+     * 4.4 Stats section description callback
      */
     public function stats_section_callback() {
         if ( ! class_exists( 'WooCommerce' ) ) {
@@ -364,14 +460,7 @@ class OH_Admin_UI {
     }
 
     /**
-     * Section description callback
-     */
-    public function section_callback() {
-        echo '<p>' . esc_html__( 'Configure the settings for automatic deletion of old out-of-stock products.', 'delete-old-outofstock-products' ) . '</p>';
-    }
-
-    /**
-     * Product age field callback
+     * 4.5 Product age field callback
      */
     public function product_age_callback() {
         $product_age = isset( $this->options['product_age'] ) ? $this->options['product_age'] : 18;
@@ -382,7 +471,7 @@ class OH_Admin_UI {
     }
 
     /**
-     * Delete images checkbox callback
+     * 4.6 Delete images checkbox callback
      */
     public function delete_images_callback() {
         $delete_images = isset( $this->options['delete_images'] ) ? $this->options['delete_images'] : 'yes';
@@ -398,7 +487,7 @@ class OH_Admin_UI {
     }
 
     /**
-     * Render settings page
+     * 4.7 Render settings page
      */
     public function render_settings_page() {
         if ( ! current_user_can( 'manage_options' ) ) {
@@ -406,49 +495,17 @@ class OH_Admin_UI {
         }
         
         // Check if process is running
-        $is_running = get_option( 'oh_doop_deletion_running', false );
+        $is_running = get_option( DOOP_PROCESS_OPTION, false );
         $deletion_status = isset( $_GET['deletion_status'] ) ? sanitize_text_field( $_GET['deletion_status'] ) : '';
         $deleted_count = isset( $_GET['deleted'] ) ? intval( $_GET['deleted'] ) : false;
-        $last_run_count = get_option( 'oh_doop_last_run_count', false );
+        $last_run_count = get_option( DOOP_RESULT_OPTION, false );
         $too_many_count = get_option( 'oh_doop_too_many_products', false );
         
         // Clear the too many products flag if it exists
         if ($too_many_count !== false && $deletion_status !== 'too_many') {
-            $too_many_count = false;
             delete_option('oh_doop_too_many_products');
+            $too_many_count = false;
         }
-        
-        // Check if a completed process needs to be shown
-        if ($is_running === 0 && $last_run_count !== false && $deletion_status === 'running') {
-            // Process completed while we were on the page, redirect to completion
-            wp_safe_redirect(add_query_arg(
-                array(
-                    'page' => 'doop-settings',
-                    'deletion_status' => 'completed',
-                    'deleted' => $last_run_count,
-                    't' => time()
-                ),
-                admin_url('admin.php')
-            ));
-            exit;
-        }
-        
-        // Check if too many products were found during a background process
-        if ($too_many_count !== false && $deletion_status !== 'too_many') {
-            wp_safe_redirect(add_query_arg(
-                array(
-                    'page' => 'doop-settings',
-                    'deletion_status' => 'too_many',
-                    'count' => $too_many_count,
-                    't' => time()
-                ),
-                admin_url('admin.php')
-            ));
-            exit;
-        }
-        
-        // Enqueue WordPress's Ajax API
-        wp_enqueue_script('jquery');
         
         ?>
         <div class="wrap">
@@ -464,9 +521,9 @@ class OH_Admin_UI {
             
             <?php
             // Only show one status message, prioritizing AJAX updates
-            if ( ($is_running && $is_running !== 0) || 'running' === $deletion_status ) {
-                // Show nothing here - AJAX will handle the status display
-            } elseif ( 'completed' === $deletion_status ) {
+            if (($is_running && $is_running !== 0) || 'running' === $deletion_status) {
+                // Don't show any message - AJAX will handle it
+            } elseif ('completed' === $deletion_status) {
                 // Show completion message with count from URL parameter or last stored count
                 $count = false !== $deleted_count ? $deleted_count : $last_run_count;
                 if (false !== $count) {
@@ -489,9 +546,9 @@ class OH_Admin_UI {
                     </div>
                     <?php
                     // Clear the last run count after showing it
-                    delete_option( 'oh_doop_last_run_count' );
+                    delete_option( DOOP_RESULT_OPTION );
                 }
-            } elseif ( 'too_many' === $deletion_status ) {
+            } elseif ('too_many' === $deletion_status) {
                 $count = isset( $_GET['count'] ) ? intval( $_GET['count'] ) : ($too_many_count !== false ? $too_many_count : 0);
                 ?>
                 <div class="notice notice-warning">
@@ -510,6 +567,17 @@ class OH_Admin_UI {
                 <?php
                 // Clear the too many products flag
                 delete_option('oh_doop_too_many_products');
+            } elseif ('already_running' === $deletion_status) {
+                ?>
+                <div class="notice notice-warning">
+                    <p>
+                        <strong><?php esc_html_e( 'A cleanup process is already running.', 'delete-old-outofstock-products' ); ?></strong>
+                    </p>
+                    <p>
+                        <?php esc_html_e( 'Please wait for the current process to complete before starting a new one.', 'delete-old-outofstock-products' ); ?>
+                    </p>
+                </div>
+                <?php
             }
             ?>
             
@@ -605,7 +673,7 @@ class OH_Admin_UI {
                 </div>
                 
                 <p><?php esc_html_e( 'Click the button below to manually run the deletion process.', 'delete-old-outofstock-products' ); ?></p>
-                <p><em><?php esc_html_e( 'Note: The cleanup process runs immediately when using this button.', 'delete-old-outofstock-products' ); ?></em></p>
+                <p><em><?php esc_html_e( 'Note: The cleanup process runs in the background and you can navigate away after starting it.', 'delete-old-outofstock-products' ); ?></em></p>
                 
                 <?php if ( $is_running && $is_running !== 0 ) : ?>
                     <p><strong><?php esc_html_e( 'A cleanup process is already running. Please wait for it to complete.', 'delete-old-outofstock-products' ); ?></strong></p>
@@ -615,191 +683,11 @@ class OH_Admin_UI {
                         <input type="hidden" name="action" value="oh_run_product_deletion">
                         <?php wp_nonce_field( 'oh_run_product_deletion_nonce', 'oh_nonce' ); ?>
                         <?php submit_button( __( 'Run Product Cleanup Now', 'delete-old-outofstock-products' ), 'primary', 'run_now', false ); ?>
+                        <span class="oh-status-indicator"></span>
                     </form>
                 <?php endif; ?>
             </div>
         </div>
-        
-        <script type="text/javascript">
-        jQuery(document).ready(function($) {
-            // Set up log viewer
-            $('.oh-view-log-btn').on('click', function() {
-                var logEl = $('#oh-deletion-log');
-                
-                if (logEl.is(':visible')) {
-                    logEl.hide();
-                    return;
-                }
-                
-                // Show loading indicator
-                logEl.show().html('<?php esc_html_e('Loading log...', 'delete-old-outofstock-products'); ?>');
-                
-                // Get log content via AJAX
-                $.ajax({
-                    url: ajaxurl,
-                    type: 'POST',
-                    data: {
-                        action: 'oh_get_deletion_log',
-                        security: '<?php echo wp_create_nonce('oh_doop_ajax_nonce'); ?>'
-                    },
-                    success: function(response) {
-                        if (response.success && response.data.log_content) {
-                            logEl.html(response.data.log_content);
-                        } else {
-                            logEl.html('<?php esc_html_e('No log content available', 'delete-old-outofstock-products'); ?>');
-                        }
-                        
-                        // Scroll to bottom
-                        logEl.scrollTop(logEl[0].scrollHeight);
-                    },
-                    error: function() {
-                        logEl.html('<?php esc_html_e('Error loading log content', 'delete-old-outofstock-products'); ?>');
-                    }
-                });
-            });
-            
-            <?php if ( ($is_running && $is_running !== 0) || 'running' === $deletion_status ) : ?>
-            // Create a status container if it doesn't exist
-            var statusEl = $('#oh-process-status');
-            if (statusEl.length === 0) {
-                $('.wrap').prepend('<div id="oh-process-status"></div>');
-                statusEl = $('#oh-process-status');
-            }
-            
-            // Set up the AJAX status checker
-            function checkStatus() {
-                $.ajax({
-                    url: ajaxurl,
-                    type: 'POST',
-                    data: {
-                        action: 'oh_check_deletion_status',
-                        security: '<?php echo wp_create_nonce('oh_doop_ajax_nonce'); ?>'
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            var data = response.data;
-                            
-                            // Update the status message
-                            if (data.is_running) {
-statusEl.removeClass('success error').show().html(
-                                    '<p><strong><?php esc_html_e('Product cleanup is in progress...', 'delete-old-outofstock-products'); ?></strong></p>' +
-                                    '<p><?php esc_html_e('Started:', 'delete-old-outofstock-products'); ?> ' + data.time_elapsed + ' <?php esc_html_e('ago', 'delete-old-outofstock-products'); ?></p>' +
-                                    '<p><?php esc_html_e('You can navigate away from this page. The process will continue in the background.', 'delete-old-outofstock-products'); ?></p>'
-                                );
-                                
-                                // If log file exists, add view log button
-                                if (data.has_log) {
-                                    statusEl.append('<p><button type="button" class="button oh-view-log-btn"><?php esc_html_e('View Log', 'delete-old-outofstock-products'); ?></button></p>');
-                                    
-                                    // Rebind event
-                                    $('.oh-view-log-btn').off('click').on('click', function() {
-                                        var logEl = $('#oh-deletion-log');
-                                        
-                                        if (logEl.is(':visible')) {
-                                            logEl.hide();
-                                            return;
-                                        }
-                                        
-                                        logEl.show().html('<?php esc_html_e('Loading log...', 'delete-old-outofstock-products'); ?>');
-                                        
-                                        $.ajax({
-                                            url: ajaxurl,
-                                            type: 'POST',
-                                            data: {
-                                                action: 'oh_get_deletion_log',
-                                                security: '<?php echo wp_create_nonce('oh_doop_ajax_nonce'); ?>'
-                                            },
-                                            success: function(response) {
-                                                if (response.success && response.data.log_content) {
-                                                    logEl.html(response.data.log_content);
-                                                } else {
-                                                    logEl.html('<?php esc_html_e('No log content available', 'delete-old-outofstock-products'); ?>');
-                                                }
-                                                
-                                                // Scroll to bottom
-                                                logEl.scrollTop(logEl[0].scrollHeight);
-                                            },
-                                            error: function() {
-                                                logEl.html('<?php esc_html_e('Error loading log content', 'delete-old-outofstock-products'); ?>');
-                                            }
-                                        });
-                                    });
-                                }
-                                
-                                // Schedule another check in a few seconds
-                                setTimeout(checkStatus, 5000);
-                            } else if (data.is_completed) {
-                                // Process completed
-                                statusEl.removeClass('error').addClass('success').show().html(
-                                    '<p><strong><?php esc_html_e('Product cleanup completed!', 'delete-old-outofstock-products'); ?></strong></p>' +
-                                    '<p>' + data.deleted_count + ' <?php esc_html_e('products were deleted.', 'delete-old-outofstock-products'); ?></p>'
-                                );
-                                
-                                // If log file exists, add view log button
-                                if (data.has_log) {
-                                    statusEl.append('<p><button type="button" class="button oh-view-log-btn"><?php esc_html_e('View Log', 'delete-old-outofstock-products'); ?></button></p>');
-                                    
-                                    // Rebind event
-                                    $('.oh-view-log-btn').off('click').on('click', function() {
-                                        var logEl = $('#oh-deletion-log');
-                                        
-                                        if (logEl.is(':visible')) {
-                                            logEl.hide();
-                                            return;
-                                        }
-                                        
-                                        logEl.show().html('<?php esc_html_e('Loading log...', 'delete-old-outofstock-products'); ?>');
-                                        
-                                        $.ajax({
-                                            url: ajaxurl,
-                                            type: 'POST',
-                                            data: {
-                                                action: 'oh_get_deletion_log',
-                                                security: '<?php echo wp_create_nonce('oh_doop_ajax_nonce'); ?>'
-                                            },
-                                            success: function(response) {
-                                                if (response.success && response.data.log_content) {
-                                                    logEl.html(response.data.log_content);
-                                                } else {
-                                                    logEl.html('<?php esc_html_e('No log content available', 'delete-old-outofstock-products'); ?>');
-                                                }
-                                                
-                                                // Scroll to bottom
-                                                logEl.scrollTop(logEl[0].scrollHeight);
-                                            },
-                                            error: function() {
-                                                logEl.html('<?php esc_html_e('Error loading log content', 'delete-old-outofstock-products'); ?>');
-                                            }
-                                        });
-                                    });
-                                }
-                                
-                                // Reload the page to show the updated UI without auto-refresh
-                                setTimeout(function() {
-                                    window.location.href = '<?php echo esc_url(add_query_arg(array('page' => 'doop-settings', 'deletion_status' => 'completed'), admin_url('admin.php'))); ?>&deleted=' + data.deleted_count + '&t=' + Date.now();
-                                }, 2000);
-                            } else if (data.too_many) {
-                                // Too many products
-                                statusEl.removeClass('success').addClass('error').show().html(
-                                    '<p><strong><?php esc_html_e('Too many products eligible for deletion', 'delete-old-outofstock-products'); ?></strong></p>' +
-                                    '<p><?php esc_html_e('There are', 'delete-old-outofstock-products'); ?> ' + data.too_many_count + ' <?php esc_html_e('products eligible for deletion, which exceeds the safe limit for manual deletion (200).', 'delete-old-outofstock-products'); ?></p>'
-                                );
-                                
-                                // Reload the page to show the updated UI without auto-refresh
-                                setTimeout(function() {
-                                    window.location.href = '<?php echo esc_url(add_query_arg(array('page' => 'doop-settings', 'deletion_status' => 'too_many'), admin_url('admin.php'))); ?>&count=' + data.too_many_count + '&t=' + Date.now();
-                                }, 2000);
-                            }
-                        }
-                    }
-                });
-            }
-            
-            // Start checking status
-            checkStatus();
-            <?php endif; ?>
-        });
-        </script>
         <?php
     }
 }
