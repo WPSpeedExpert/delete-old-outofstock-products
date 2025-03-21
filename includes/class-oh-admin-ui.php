@@ -353,6 +353,7 @@ class OH_Admin_UI {
             )
         );
     }
+    
     /**
      * 4.3 Section description callback
      */
@@ -696,3 +697,4 @@ class OH_Admin_UI {
         </div>
         <?php
     }
+}
