@@ -285,7 +285,7 @@ class OH_Deletion_Plugin {
         $current_user = wp_get_current_user();
         $this->logger->log("Manual deletion process initiated by user: " . $current_user->user_login);
         
-        // For small numbers (less than 50), run directly for immediate feedback
+        // For small batches or testing, run directly for immediate feedback
         if ($eligible_count < 50) {
             $this->logger->log("Running deletion process directly (small number of products)");
             
@@ -296,7 +296,7 @@ class OH_Deletion_Plugin {
             update_option( DOOP_RESULT_OPTION, $deleted );
             update_option( DOOP_PROCESS_OPTION, 0 ); // Mark as complete
             
-            $this->logger->log("Manual deletion process completed. Deleted $deleted products.");
+            $this->logger->log("Manual deletion process completed directly. Deleted $deleted products.");
             
             // Redirect to the completion page
             wp_redirect(add_query_arg(
@@ -314,14 +314,20 @@ class OH_Deletion_Plugin {
         // For larger numbers, use the background process
         $this->logger->log("Starting deletion process in the background");
         
-        // Force immediate execution of the cron task
+        // Force immediate execution of the cron task by directly calling the function
+        // This is more reliable than wp_schedule_single_event() + spawn_cron()
         do_action(DOOP_CRON_HOOK);
         
-        // Redirect to the monitoring page
+        // Set a flag to prevent the cron schedule refresh redirect
+        update_option('oh_doop_manual_process', true);
+        
+        // Redirect to the monitoring page with a special parameter to prevent
+        // the automatic refresh in the settings page
         wp_redirect(add_query_arg(
             array(
                 'page' => 'doop-settings',
                 'deletion_status' => 'running',
+                'manual' => '1',
                 't' => time()
             ),
             admin_url('admin.php')
