@@ -1,7 +1,7 @@
 <?php
 /**
- * Filename: includes/class-oh-deletion-processor.php
- * Deletion Processor class for Delete Old Out-of-Stock Products
+ * Filename: includes/class-oh-deletion-plugin.php
+ * Main plugin class for Delete Old Out-of-Stock Products
  *
  * @package Delete_Old_Outofstock_Products
  * @version 2.2.3
@@ -14,9 +14,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Class to handle product deletion logic
+ * Main plugin class
  */
-class OH_Deletion_Processor {
+class OH_Deletion_Plugin {
+    /**
+     * Plugin instance
+     *
+     * @var OH_Deletion_Plugin
+     */
+    private static $instance = null;
+
     /**
      * Logger instance
      *
@@ -25,247 +32,222 @@ class OH_Deletion_Processor {
     private $logger;
     
     /**
+     * Deletion processor instance
+     *
+     * @var OH_Deletion_Processor
+     */
+    private $processor;
+    
+    /**
+     * Admin UI instance
+     *
+     * @var OH_Admin_UI
+     */
+    private $admin_ui;
+    
+    /**
+     * Last cron execution time
+     *
+     * @var int
+     */
+    private $last_cron_time;
+
+    /**
+     * Get single instance of the plugin
+     *
+     * @return OH_Deletion_Plugin
+     */
+    public static function get_instance() {
+        if ( is_null( self::$instance ) ) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
+    /**
      * Constructor
      */
-    public function __construct() {
+    private function __construct() {
         $this->logger = OH_Logger::get_instance();
+        $this->processor = new OH_Deletion_Processor();
+        $this->admin_ui = new OH_Admin_UI();
+        
+        $this->last_cron_time = get_option( 'oh_doop_last_cron_time', 0 );
+
+        // Plugin activation and deactivation hooks
+        register_activation_hook( DOOP_PLUGIN_FILE, array( $this, 'activate' ) );
+        register_deactivation_hook( DOOP_PLUGIN_FILE, array( $this, 'deactivate' ) );
+        
+        // Handle manual run
+        add_action( 'admin_post_oh_run_product_deletion', array( $this, 'handle_manual_run' ) );
+
+        // Cron action
+        add_action( DOOP_CRON_HOOK, array( $this, 'run_scheduled_deletion' ) );
+        add_action( DOOP_CRON_HOOK, array( $this, 'update_last_cron_time' ) );
     }
     
     /**
-     * Delete out-of-stock WooCommerce products older than the configured age, including images.
-     * 
-     * @param int $batch_size Optional batch size to limit number of products processed
-     * @return int Number of products deleted
+     * Update the last cron execution time
      */
-    public function delete_old_out_of_stock_products( $batch_size = 50 ) {
-        if ( ! class_exists( 'WooCommerce' ) ) {
-            $this->logger->log("WooCommerce is not active. Aborting deletion.");
-            return 0;
+    public function update_last_cron_time() {
+        $current_time = time();
+        update_option( 'oh_doop_last_cron_time', $current_time );
+        $this->last_cron_time = $current_time;
+    }
+
+    /**
+     * Activate the plugin
+     */
+    public function activate() {
+        // Add default options if they don't exist
+        if ( ! get_option( DOOP_OPTIONS_KEY ) ) {
+            update_option( DOOP_OPTIONS_KEY, array(
+                'product_age' => 18,
+                'delete_images' => 'yes',
+            ) );
         }
 
-        // Get options
+        // Clear any existing scheduled events first to avoid duplicates
+        $timestamp = wp_next_scheduled( DOOP_CRON_HOOK );
+        if ( $timestamp ) {
+            wp_unschedule_event( $timestamp, DOOP_CRON_HOOK );
+        }
+
+        // Schedule the cron event
+        wp_schedule_event( time(), 'daily', DOOP_CRON_HOOK );
+        
+        // Initialize the last cron time if needed
+        if ( ! get_option( 'oh_doop_last_cron_time' ) ) {
+            update_option( 'oh_doop_last_cron_time', 0 );
+        }
+        
+        $this->logger->log('Plugin activated');
+    }
+
+    /**
+     * Deactivate the plugin
+     */
+    public function deactivate() {
+        // Clear the cron event
+        $timestamp = wp_next_scheduled( DOOP_CRON_HOOK );
+        if ( $timestamp ) {
+            wp_unschedule_event( $timestamp, DOOP_CRON_HOOK );
+        }
+        
+        // Clean up any running process flags
+        delete_option( 'oh_doop_deletion_running' );
+        delete_option( 'oh_doop_last_run_count' );
+        delete_option( 'oh_doop_too_many_products' );
+        // Don't delete oh_doop_last_cron_time - keep this record even when deactivated
+        
+        $this->logger->log('Plugin deactivated');
+    }
+    
+    /**
+     * Handle manual run of the product deletion process
+     */
+    public function handle_manual_run() {
+        // Check nonce for security
+        if ( 
+            ! isset( $_POST['oh_nonce'] ) || 
+            ! wp_verify_nonce( $_POST['oh_nonce'], 'oh_run_product_deletion_nonce' ) || 
+            ! current_user_can( 'manage_options' )
+        ) {
+            wp_die( esc_html__( 'Security check failed. Please try again.', 'delete-old-outofstock-products' ) );
+        }
+        
+        // Set a flag that the process is starting
+        update_option( 'oh_doop_deletion_running', time() );
+        
+        // Log the manual run
+        $this->logger->log("Manual deletion process initiated by user: " . wp_get_current_user()->user_login);
+        
+        // Check eligible products before running
         $options = get_option( DOOP_OPTIONS_KEY, array(
             'product_age' => 18,
             'delete_images' => 'yes',
-        ) );
-
+        ));
+        
         $product_age = isset( $options['product_age'] ) ? absint( $options['product_age'] ) : 18;
-        $delete_images = isset( $options['delete_images'] ) ? $options['delete_images'] : 'yes';
-
         $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
         
-        $this->logger->log("Starting product deletion process with age threshold: $product_age months");
-        $this->logger->log("Date threshold: $date_threshold");
-        $this->logger->log("Delete images setting: $delete_images");
-        $this->logger->log("Batch size: $batch_size");
-
-        // Process in smaller batches to reduce memory usage
-        $offset = 0;
-        $deleted = 0;
-        $total_processed = 0;
-        
-        do {
-            $this->logger->log("Processing batch with offset: $offset");
-            
-            $products = get_posts( array(
-                'post_type'      => 'product',
-                'post_status'    => 'publish',
-                'posts_per_page' => $batch_size,
-                'offset'         => $offset,
-                'date_query'     => array(
-                    array(
-                        'before' => $date_threshold,
-                    ),
+        // Count eligible products
+        $eligible_query = new WP_Query( array(
+            'post_type'      => 'product',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'date_query'     => array(
+                array(
+                    'before' => $date_threshold,
                 ),
-                'meta_query'     => array(
-                    array(
-                        'key'   => '_stock_status',
-                        'value' => 'outofstock',
-                    ),
+            ),
+            'meta_query'     => array(
+                array(
+                    'key'   => '_stock_status',
+                    'value' => 'outofstock',
                 ),
-                'fields' => 'ids',
-            ) );
-            
-            if ( empty( $products ) ) {
-                $this->logger->log("No more products found to process");
-                break;
-            }
-            
-            $this->logger->log("Found " . count($products) . " products to process in current batch");
-            
-            foreach ( $products as $product_id ) {
-                $product = wc_get_product( $product_id );
-
-                if ( ! $product ) {
-                    $this->logger->log("Could not get product with ID: $product_id");
-                    continue;
-                }
-                
-                $product_name = $product->get_name();
-                $this->logger->log("Processing product #$product_id: $product_name");
-
-                // Process product images if enabled
-                if ( 'yes' === $delete_images ) {
-                    $attachment_ids = array();
-
-                    // Featured image
-                    $featured_image_id = $product->get_image_id();
-                    if ( $featured_image_id ) {
-                        $attachment_ids[] = $featured_image_id;
-                    }
-
-                    // Gallery images
-                    $gallery_ids = $product->get_gallery_image_ids();
-                    if (!empty($gallery_ids)) {
-                        $attachment_ids = array_merge( $attachment_ids, $gallery_ids );
-                    }
-                    
-                    $this->logger->log("Found " . count($attachment_ids) . " images for product #$product_id");
-
-                    foreach ( $attachment_ids as $attachment_id ) {
-                        if ( $attachment_id ) {
-                            // Get attachment details for logging
-                            $attachment_path = get_attached_file($attachment_id);
-                            $attachment_url = wp_get_attachment_url($attachment_id);
-                            $file_name = basename($attachment_path);
-                            
-                            // Skip placeholder images
-                            if ( $attachment_url && $this->is_placeholder_image( $attachment_url ) ) {
-                                $this->logger->log("Skipping placeholder image #$attachment_id: $file_name");
-                                continue;
-                            }
-                            
-                            // Check if the image is used by other products or posts
-                            if ( $this->is_attachment_used_elsewhere( $attachment_id, $product_id ) ) {
-                                $this->logger->log("Skipping image #$attachment_id ($file_name) - used by other posts");
-                                continue;
-                            }
-                            
-                            // Delete the attachment
-                            $this->logger->log("Deleting image #$attachment_id: $file_name");
-                            $result = wp_delete_attachment( $attachment_id, true );
-                            
-                            if ($result) {
-                                $this->logger->log("Successfully deleted image #$attachment_id");
-                            } else {
-                                $this->logger->log("Failed to delete image #$attachment_id");
-                            }
-                        }
-                    }
-                }
-
-                // Delete the product
-                $this->logger->log("Deleting product #$product_id: $product_name");
-                $result = wp_delete_post( $product_id, true );
-                
-                if ( $result ) {
-                    $this->logger->log("Successfully deleted product #$product_id");
-                    $deleted++;
-                } else {
-                    $this->logger->log("Failed to delete product #$product_id");
-                }
-                
-                $total_processed++;
-                
-                // Add a small delay every 10 products to prevent timeouts
-                if ($total_processed % 10 === 0) {
-                    usleep(50000); // 50ms pause
-                }
-            }
-            
-            $offset += $batch_size;
-            
-            // Free up memory
-            wp_cache_flush();
-            
-            $this->logger->log("Completed batch. Total processed: $total_processed, Deleted: $deleted");
-            
-        } while ( count( $products ) === $batch_size );
+            ),
+        ) );
         
-        $this->logger->log("Deletion process complete. Total deleted: $deleted");
+        $eligible_count = $eligible_query->found_posts;
+        $this->logger->log("Products eligible for deletion: " . $eligible_count);
         
-        return $deleted;
-    }
-
-    /**
-     * Check if the given URL is a placeholder image
-     *
-     * @param string $url The image URL to check
-     * @return bool
-     */
-    private function is_placeholder_image( $url ) {
-        // Check if URL contains 'woocommerce-placeholder'
-        if ( false !== strpos( $url, 'woocommerce-placeholder' ) ) {
-            return true;
+        // If there are too many products, log and exit
+        if ($eligible_count > 200) {
+            $this->logger->log("Too many products ($eligible_count) eligible for deletion. Aborting manual run.");
+            update_option( 'oh_doop_deletion_running', 0 ); // Clear the running flag
+            update_option( 'oh_doop_last_run_count', 0 );
+            update_option( 'oh_doop_too_many_products', $eligible_count );
+            
+            // Redirect to the too many page
+            wp_redirect(add_query_arg(
+                array(
+                    'page' => 'doop-settings',
+                    'deletion_status' => 'too_many',
+                    'count' => $eligible_count,
+                    't' => time()
+                ),
+                admin_url('admin.php')
+            ));
+            exit;
         }
         
-        return false;
+        // Run the deletion directly
+        $this->logger->log("Starting manual deletion run");
+        
+        // Call our deletion function directly
+        $result = $this->run_scheduled_deletion();
+        
+        // Update the stats and status
+        update_option('oh_doop_last_run_count', $result);
+        update_option('oh_doop_deletion_running', 0); // Clear the running flag
+        
+        $this->logger->log("Manual deletion process completed. Deleted $result products.");
+        
+        // Redirect to the results page
+        wp_redirect(add_query_arg(
+            array(
+                'page' => 'doop-settings',
+                'deletion_status' => 'completed',
+                'deleted' => $result,
+                't' => time()
+            ),
+            admin_url('admin.php')
+        ));
+        exit;
     }
     
     /**
-     * Check if an attachment is used by other posts/products
-     *
-     * @param int $attachment_id The attachment ID to check
-     * @param int $excluded_product_id The product ID to exclude from the check
-     * @return bool
+     * Run the scheduled deletion process
+     * 
+     * @return int Number of products deleted
      */
-    private function is_attachment_used_elsewhere( $attachment_id, $excluded_product_id ) {
-        global $wpdb;
-        
-        // Check if the attachment is used as featured image for other posts
-        $query = $wpdb->prepare(
-            "SELECT COUNT(meta_id) FROM $wpdb->postmeta 
-            WHERE meta_key = '_thumbnail_id' 
-            AND meta_value = %d 
-            AND post_id != %d",
-            $attachment_id,
-            $excluded_product_id
-        );
-        
-        $count = $wpdb->get_var( $query );
-        
-        if ( $count > 0 ) {
-            return true;
-        }
-        
-        // Check if attachment is used in product galleries
-        $query = $wpdb->prepare(
-            "SELECT COUNT(meta_id) FROM $wpdb->postmeta 
-            WHERE meta_key = '_product_image_gallery' 
-            AND meta_value LIKE %s 
-            AND post_id != %d",
-            '%' . $wpdb->esc_like( $attachment_id ) . '%',
-            $excluded_product_id
-        );
-        
-        $count = $wpdb->get_var( $query );
-        
-        if ( $count > 0 ) {
-            return true;
-        }
-        
-        // Check for usage in post content
-        $attachment_url = wp_get_attachment_url( $attachment_id );
-        
-        if ( $attachment_url ) {
-            $attachment_url_parts = explode( '/', $attachment_url );
-            $attachment_file = end( $attachment_url_parts );
-            
-            $query = $wpdb->prepare(
-                "SELECT COUNT(ID) FROM $wpdb->posts 
-                WHERE post_content LIKE %s 
-                AND ID != %d",
-                '%' . $wpdb->esc_like( $attachment_file ) . '%',
-                $excluded_product_id
-            );
-            
-            $count = $wpdb->get_var( $query );
-            
-            if ( $count > 0 ) {
-                return true;
-            }
-        }
-        
-        return false;
+    public function run_scheduled_deletion() {
+        $this->logger->log("Starting scheduled deletion process");
+        $deleted = $this->processor->delete_old_out_of_stock_products();
+        $this->update_last_cron_time();
+        $this->logger->log("Scheduled deletion process completed. Deleted $deleted products.");
+        return $deleted;
     }
 }
