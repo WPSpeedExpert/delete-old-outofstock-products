@@ -677,3 +677,22 @@ class OH_Admin_UI {
                         <?php endif; ?>
                     </table>
                 </div>
+                
+                <p><?php esc_html_e( 'Click the button below to manually run the deletion process.', 'delete-old-outofstock-products' ); ?></p>
+                <p><em><?php esc_html_e( 'Note: The cleanup process runs in the background and you can navigate away after starting it.', 'delete-old-outofstock-products' ); ?></em></p>
+                
+                <?php if ( $is_running && $is_running !== 0 ) : ?>
+                    <p><strong><?php esc_html_e( 'A cleanup process is already running. Please wait for it to complete.', 'delete-old-outofstock-products' ); ?></strong></p>
+                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=doop-settings' ) ); ?>" class="button"><?php esc_html_e( 'Refresh Status', 'delete-old-outofstock-products' ); ?></a>
+                <?php else : ?>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                        <input type="hidden" name="action" value="oh_run_product_deletion">
+                        <?php wp_nonce_field( 'oh_run_product_deletion_nonce', 'oh_nonce' ); ?>
+                        <?php submit_button( __( 'Run Product Cleanup Now', 'delete-old-outofstock-products' ), 'primary', 'run_now', false ); ?>
+                        <span class="oh-status-indicator"></span>
+                    </form>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php
+    }
