@@ -230,7 +230,7 @@ class OH_Deletion_Plugin {
             exit;
         }
         
-        // Check eligible products count before starting the process
+        // Count eligible products
         $options = get_option( DOOP_OPTIONS_KEY, array(
             'product_age' => 18,
             'delete_images' => 'yes',
@@ -239,7 +239,6 @@ class OH_Deletion_Plugin {
         $product_age = isset( $options['product_age'] ) ? absint( $options['product_age'] ) : 18;
         $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
         
-        // Count eligible products
         $eligible_query = new WP_Query( array(
             'post_type'      => 'product',
             'post_status'    => 'publish',
@@ -286,13 +285,37 @@ class OH_Deletion_Plugin {
         $current_user = wp_get_current_user();
         $this->logger->log("Manual deletion process initiated by user: " . $current_user->user_login);
         
-        // Schedule the deletion process to run immediately in the background
-        if (!wp_next_scheduled(DOOP_CRON_HOOK)) {
-            wp_schedule_single_event(time(), DOOP_CRON_HOOK);
+        // For small numbers (less than 50), run directly for immediate feedback
+        if ($eligible_count < 50) {
+            $this->logger->log("Running deletion process directly (small number of products)");
+            
+            // Run the process directly
+            $deleted = $this->processor->delete_old_out_of_stock_products();
+            
+            // Update results
+            update_option( DOOP_RESULT_OPTION, $deleted );
+            update_option( DOOP_PROCESS_OPTION, 0 ); // Mark as complete
+            
+            $this->logger->log("Manual deletion process completed. Deleted $deleted products.");
+            
+            // Redirect to the completion page
+            wp_redirect(add_query_arg(
+                array(
+                    'page' => 'doop-settings',
+                    'deletion_status' => 'completed',
+                    'deleted' => $deleted,
+                    't' => time()
+                ),
+                admin_url('admin.php')
+            ));
+            exit;
         }
         
-        // Trigger WordPress to run scheduled tasks
-        spawn_cron();
+        // For larger numbers, use the background process
+        $this->logger->log("Starting deletion process in the background");
+        
+        // Force immediate execution of the cron task
+        do_action(DOOP_CRON_HOOK);
         
         // Redirect to the monitoring page
         wp_redirect(add_query_arg(
