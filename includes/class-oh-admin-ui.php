@@ -672,3 +672,134 @@ class OH_Admin_UI {
                     url: ajaxurl,
                     type: 'POST',
                     data: {
+                        action: 'oh_check_deletion_status',
+                        security: '<?php echo wp_create_nonce('oh_doop_ajax_nonce'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            var data = response.data;
+                            
+                            // Update the status message
+                            if (data.is_running) {
+statusEl.removeClass('success error').show().html(
+                                    '<p><strong><?php esc_html_e('Product cleanup is in progress...', 'delete-old-outofstock-products'); ?></strong></p>' +
+                                    '<p><?php esc_html_e('Started:', 'delete-old-outofstock-products'); ?> ' + data.time_elapsed + ' <?php esc_html_e('ago', 'delete-old-outofstock-products'); ?></p>' +
+                                    '<p><?php esc_html_e('You can navigate away from this page. The process will continue in the background.', 'delete-old-outofstock-products'); ?></p>'
+                                );
+                                
+                                // If log file exists, add view log button
+                                if (data.has_log) {
+                                    statusEl.append('<p><button type="button" class="button oh-view-log-btn"><?php esc_html_e('View Log', 'delete-old-outofstock-products'); ?></button></p>');
+                                    
+                                    // Rebind event
+                                    $('.oh-view-log-btn').off('click').on('click', function() {
+                                        var logEl = $('#oh-deletion-log');
+                                        
+                                        if (logEl.is(':visible')) {
+                                            logEl.hide();
+                                            return;
+                                        }
+                                        
+                                        logEl.show().html('<?php esc_html_e('Loading log...', 'delete-old-outofstock-products'); ?>');
+                                        
+                                        $.ajax({
+                                            url: ajaxurl,
+                                            type: 'POST',
+                                            data: {
+                                                action: 'oh_get_deletion_log',
+                                                security: '<?php echo wp_create_nonce('oh_doop_ajax_nonce'); ?>'
+                                            },
+                                            success: function(response) {
+                                                if (response.success && response.data.log_content) {
+                                                    logEl.html(response.data.log_content);
+                                                } else {
+                                                    logEl.html('<?php esc_html_e('No log content available', 'delete-old-outofstock-products'); ?>');
+                                                }
+                                                
+                                                // Scroll to bottom
+                                                logEl.scrollTop(logEl[0].scrollHeight);
+                                            },
+                                            error: function() {
+                                                logEl.html('<?php esc_html_e('Error loading log content', 'delete-old-outofstock-products'); ?>');
+                                            }
+                                        });
+                                    });
+                                }
+                                
+                                // Schedule another check in a few seconds
+                                setTimeout(checkStatus, 5000);
+                            } else if (data.is_completed) {
+                                // Process completed
+                                statusEl.removeClass('error').addClass('success').show().html(
+                                    '<p><strong><?php esc_html_e('Product cleanup completed!', 'delete-old-outofstock-products'); ?></strong></p>' +
+                                    '<p>' + data.deleted_count + ' <?php esc_html_e('products were deleted.', 'delete-old-outofstock-products'); ?></p>'
+                                );
+                                
+                                // If log file exists, add view log button
+                                if (data.has_log) {
+                                    statusEl.append('<p><button type="button" class="button oh-view-log-btn"><?php esc_html_e('View Log', 'delete-old-outofstock-products'); ?></button></p>');
+                                    
+                                    // Rebind event
+                                    $('.oh-view-log-btn').off('click').on('click', function() {
+                                        var logEl = $('#oh-deletion-log');
+                                        
+                                        if (logEl.is(':visible')) {
+                                            logEl.hide();
+                                            return;
+                                        }
+                                        
+                                        logEl.show().html('<?php esc_html_e('Loading log...', 'delete-old-outofstock-products'); ?>');
+                                        
+                                        $.ajax({
+                                            url: ajaxurl,
+                                            type: 'POST',
+                                            data: {
+                                                action: 'oh_get_deletion_log',
+                                                security: '<?php echo wp_create_nonce('oh_doop_ajax_nonce'); ?>'
+                                            },
+                                            success: function(response) {
+                                                if (response.success && response.data.log_content) {
+                                                    logEl.html(response.data.log_content);
+                                                } else {
+                                                    logEl.html('<?php esc_html_e('No log content available', 'delete-old-outofstock-products'); ?>');
+                                                }
+                                                
+                                                // Scroll to bottom
+                                                logEl.scrollTop(logEl[0].scrollHeight);
+                                            },
+                                            error: function() {
+                                                logEl.html('<?php esc_html_e('Error loading log content', 'delete-old-outofstock-products'); ?>');
+                                            }
+                                        });
+                                    });
+                                }
+                                
+                                // Reload the page to show the updated UI without auto-refresh
+                                setTimeout(function() {
+                                    window.location.href = '<?php echo esc_url(add_query_arg(array('page' => 'doop-settings', 'deletion_status' => 'completed'), admin_url('admin.php'))); ?>&deleted=' + data.deleted_count + '&t=' + Date.now();
+                                }, 2000);
+                            } else if (data.too_many) {
+                                // Too many products
+                                statusEl.removeClass('success').addClass('error').show().html(
+                                    '<p><strong><?php esc_html_e('Too many products eligible for deletion', 'delete-old-outofstock-products'); ?></strong></p>' +
+                                    '<p><?php esc_html_e('There are', 'delete-old-outofstock-products'); ?> ' + data.too_many_count + ' <?php esc_html_e('products eligible for deletion, which exceeds the safe limit for manual deletion (200).', 'delete-old-outofstock-products'); ?></p>'
+                                );
+                                
+                                // Reload the page to show the updated UI without auto-refresh
+                                setTimeout(function() {
+                                    window.location.href = '<?php echo esc_url(add_query_arg(array('page' => 'doop-settings', 'deletion_status' => 'too_many'), admin_url('admin.php'))); ?>&count=' + data.too_many_count + '&t=' + Date.now();
+                                }, 2000);
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // Start checking status
+            checkStatus();
+            <?php endif; ?>
+        });
+        </script>
+        <?php
+    }
+}
