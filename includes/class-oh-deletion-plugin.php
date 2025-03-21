@@ -111,9 +111,6 @@ class OH_Deletion_Plugin {
         // Cron action
         add_action( DOOP_CRON_HOOK, array( $this, 'run_scheduled_deletion' ) );
         add_action( DOOP_CRON_HOOK, array( $this, 'update_last_cron_time' ) );
-        
-        // AJAX handler for background process status
-        add_action( 'wp_ajax_oh_check_process_status', array( $this, 'ajax_check_process_status' ) );
     }
     
     // 2. PLUGIN LIFECYCLE
@@ -149,6 +146,7 @@ class OH_Deletion_Plugin {
         delete_option( DOOP_PROCESS_OPTION );
         delete_option( DOOP_RESULT_OPTION );
         delete_option( 'oh_doop_too_many_products' );
+        delete_option( 'oh_doop_manual_process' );
         
         $this->logger->log('Plugin activated');
     }
@@ -167,6 +165,7 @@ class OH_Deletion_Plugin {
         delete_option( DOOP_PROCESS_OPTION );
         delete_option( DOOP_RESULT_OPTION );
         delete_option( 'oh_doop_too_many_products' );
+        delete_option( 'oh_doop_manual_process' );
         // Don't delete oh_doop_last_cron_time - keep this record even when deactivated
         
         $this->logger->log('Plugin deactivated');
@@ -286,7 +285,7 @@ class OH_Deletion_Plugin {
         $this->logger->log("Manual deletion process initiated by user: " . $current_user->user_login);
         
         // For small batches or testing, run directly for immediate feedback
-        if ($eligible_count < 50) {
+        if ($eligible_count < 10) {
             $this->logger->log("Running deletion process directly (small number of products)");
             
             // Run the process directly
@@ -314,12 +313,11 @@ class OH_Deletion_Plugin {
         // For larger numbers, use the background process
         $this->logger->log("Starting deletion process in the background");
         
-        // Force immediate execution of the cron task by directly calling the function
-        // This is more reliable than wp_schedule_single_event() + spawn_cron()
-        do_action(DOOP_CRON_HOOK);
-        
         // Set a flag to prevent the cron schedule refresh redirect
         update_option('oh_doop_manual_process', true);
+        
+        // Force immediate execution of the cron task by directly calling the hook
+        do_action(DOOP_CRON_HOOK);
         
         // Redirect to the monitoring page with a special parameter to prevent
         // the automatic refresh in the settings page
@@ -333,30 +331,5 @@ class OH_Deletion_Plugin {
             admin_url('admin.php')
         ));
         exit;
-    }
-    
-    /**
-     * 3.3 AJAX handler to check process status
-     */
-    public function ajax_check_process_status() {
-        // Check nonce for security
-        check_ajax_referer( 'oh_doop_ajax_nonce', 'security' );
-        
-        $is_running = get_option( DOOP_PROCESS_OPTION, false );
-        $last_run_count = get_option( DOOP_RESULT_OPTION, false );
-        $too_many_count = get_option( 'oh_doop_too_many_products', false );
-        
-        $response = array(
-            'is_running' => ($is_running && $is_running !== 0),
-            'is_completed' => ($is_running === 0 && $last_run_count !== false),
-            'too_many' => ($too_many_count !== false),
-            'deleted_count' => $last_run_count !== false ? intval($last_run_count) : 0,
-            'too_many_count' => $too_many_count !== false ? intval($too_many_count) : 0,
-            'time_elapsed' => $is_running ? human_time_diff(intval($is_running), time()) : '',
-            'has_log' => $this->logger->log_exists(),
-            'log_content' => $this->logger->log_exists() ? $this->logger->get_log_content() : '',
-        );
-        
-        wp_send_json_success($response);
     }
 }
