@@ -284,6 +284,9 @@ class OH_Deletion_Plugin {
         $current_user = wp_get_current_user();
         $this->logger->log("Manual deletion process initiated by user: " . $current_user->user_login);
         
+        // Set a flag to prevent the cron schedule refresh redirect
+        update_option('oh_doop_manual_process', true);
+        
         // For small batches or testing, run directly for immediate feedback
         if ($eligible_count < 10) {
             $this->logger->log("Running deletion process directly (small number of products)");
@@ -313,14 +316,13 @@ class OH_Deletion_Plugin {
         // For larger numbers, use the background process
         $this->logger->log("Starting deletion process in the background");
         
-        // Set a flag to prevent the cron schedule refresh redirect
-        update_option('oh_doop_manual_process', true);
+        // Instead of scheduling through WP-Cron, run the process in a non-blocking way
+        wp_schedule_single_event(time(), DOOP_CRON_HOOK);
         
-        // Force immediate execution of the cron task by directly calling the hook
-        do_action(DOOP_CRON_HOOK);
+        // Tell WordPress to run the cron immediately after redirect
+        add_action('shutdown', 'spawn_cron');
         
-        // Redirect to the monitoring page with a special parameter to prevent
-        // the automatic refresh in the settings page
+        // Redirect to the monitoring page with a special parameter
         wp_redirect(add_query_arg(
             array(
                 'page' => 'doop-settings',
@@ -332,4 +334,3 @@ class OH_Deletion_Plugin {
         ));
         exit;
     }
-}
