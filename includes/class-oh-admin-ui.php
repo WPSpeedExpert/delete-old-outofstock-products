@@ -620,16 +620,16 @@ class OH_Admin_UI {
                                         echo esc_html( get_date_from_gmt( date( 'Y-m-d H:i:s', $next_scheduled ), 'F j, Y, g:i a' ) );
                                         echo ' <em>' . esc_html__( '(just scheduled)', 'delete-old-outofstock-products' ) . '</em>';
                                         
-                                        // Only refresh if not a manual process
-                                        if (!isset($_GET['manual']) && !get_option('oh_doop_manual_process', false)) {
-                                            // Refresh the page to update the UI
-                                            echo '<meta http-equiv="refresh" content="0;URL=\'' . 
-                                                esc_url(add_query_arg('freshly_scheduled', '1', admin_url('admin.php?page=doop-settings'))) . 
-                                                '\'" />';
-                                        } else {
-                                            // Clear the manual process flag
-                                            delete_option('oh_doop_manual_process');
-                                        }
+                                    // Only refresh if not a manual process and not on a running status page
+                                    if (!isset($_GET['manual']) && !isset($_GET['deletion_status']) && !get_option('oh_doop_manual_process', false)) {
+                                        // Refresh the page to update the UI
+                                        echo '<meta http-equiv="refresh" content="0;URL=\'' . 
+                                            esc_url(add_query_arg('freshly_scheduled', '1', admin_url('admin.php?page=doop-settings'))) . 
+                                            '\'" />';
+                                    } else {
+                                        // Clear the manual process flag
+                                        delete_option('oh_doop_manual_process');
+                                    }
                                     } else {
                                         esc_html_e( 'Unable to schedule cron - please check your WordPress configuration', 'delete-old-outofstock-products' );
                                     }
