@@ -4,8 +4,7 @@
  * Deletion Processor class for Delete Old Out-of-Stock Products
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.2.3
- * @since 2.2.3
+ * @version 2.4.1
  */
 
 // Exit if accessed directly.
@@ -64,127 +63,162 @@ class OH_Deletion_Processor {
         $deleted = 0;
         $total_processed = 0;
         
-        do {
-            $this->logger->log("Processing batch with offset: $offset");
-            
-            $products = get_posts( array(
-                'post_type'      => 'product',
-                'post_status'    => 'publish',
-                'posts_per_page' => $batch_size,
-                'offset'         => $offset,
-                'date_query'     => array(
-                    array(
-                        'before' => $date_threshold,
+        try {
+            do {
+                $this->logger->log("Processing batch with offset: $offset");
+                
+                // Update process timestamp to show we're still alive
+                update_option( DOOP_PROCESS_OPTION, time() );
+                
+                // Get a batch of products
+                $products = get_posts( array(
+                    'post_type'      => 'product',
+                    'post_status'    => 'publish',
+                    'posts_per_page' => $batch_size,
+                    'offset'         => $offset,
+                    'date_query'     => array(
+                        array(
+                            'before' => $date_threshold,
+                        ),
                     ),
-                ),
-                'meta_query'     => array(
-                    array(
-                        'key'   => '_stock_status',
-                        'value' => 'outofstock',
+                    'meta_query'     => array(
+                        array(
+                            'key'   => '_stock_status',
+                            'value' => 'outofstock',
+                        ),
                     ),
-                ),
-                'fields' => 'ids',
-            ) );
-            
-            if ( empty( $products ) ) {
-                $this->logger->log("No more products found to process");
-                break;
-            }
-            
-            $this->logger->log("Found " . count($products) . " products to process in current batch");
-            
-            foreach ( $products as $product_id ) {
-                $product = wc_get_product( $product_id );
-
-                if ( ! $product ) {
-                    $this->logger->log("Could not get product with ID: $product_id");
-                    continue;
+                    'fields' => 'ids',
+                ) );
+                
+                if ( empty( $products ) ) {
+                    $this->logger->log("No more products found to process");
+                    break;
                 }
                 
-                $product_name = $product->get_name();
-                $this->logger->log("Processing product #$product_id: $product_name");
+                $this->logger->log("Found " . count($products) . " products to process in current batch");
+                
+                foreach ( $products as $product_id ) {
+                    try {
+                        $product = wc_get_product( $product_id );
 
-                // Process product images if enabled
-                if ( 'yes' === $delete_images ) {
-                    $attachment_ids = array();
-
-                    // Featured image
-                    $featured_image_id = $product->get_image_id();
-                    if ( $featured_image_id ) {
-                        $attachment_ids[] = $featured_image_id;
-                    }
-
-                    // Gallery images
-                    $gallery_ids = $product->get_gallery_image_ids();
-                    if (!empty($gallery_ids)) {
-                        $attachment_ids = array_merge( $attachment_ids, $gallery_ids );
-                    }
-                    
-                    $this->logger->log("Found " . count($attachment_ids) . " images for product #$product_id");
-
-                    foreach ( $attachment_ids as $attachment_id ) {
-                        if ( $attachment_id ) {
-                            // Get attachment details for logging
-                            $attachment_path = get_attached_file($attachment_id);
-                            $attachment_url = wp_get_attachment_url($attachment_id);
-                            $file_name = basename($attachment_path);
-                            
-                            // Skip placeholder images
-                            if ( $attachment_url && $this->is_placeholder_image( $attachment_url ) ) {
-                                $this->logger->log("Skipping placeholder image #$attachment_id: $file_name");
-                                continue;
-                            }
-                            
-                            // Check if the image is used by other products or posts
-                            if ( $this->is_attachment_used_elsewhere( $attachment_id, $product_id ) ) {
-                                $this->logger->log("Skipping image #$attachment_id ($file_name) - used by other posts");
-                                continue;
-                            }
-                            
-                            // Delete the attachment
-                            $this->logger->log("Deleting image #$attachment_id: $file_name");
-                            $result = wp_delete_attachment( $attachment_id, true );
-                            
-                            if ($result) {
-                                $this->logger->log("Successfully deleted image #$attachment_id");
-                            } else {
-                                $this->logger->log("Failed to delete image #$attachment_id");
-                            }
+                        if ( ! $product ) {
+                            $this->logger->log("Could not get product with ID: $product_id");
+                            continue;
                         }
+                        
+                        $product_name = $product->get_name();
+                        $this->logger->log("Processing product #$product_id: $product_name");
+
+                        // Process product images if enabled
+                        if ( 'yes' === $delete_images ) {
+                            $this->process_product_images($product, $product_id);
+                        }
+
+                        // Delete the product
+                        $this->logger->log("Deleting product #$product_id: $product_name");
+                        $result = wp_delete_post( $product_id, true );
+                        
+                        if ( $result ) {
+                            $this->logger->log("Successfully deleted product #$product_id");
+                            $deleted++;
+                        } else {
+                            $this->logger->log("Failed to delete product #$product_id");
+                        }
+                        
+                        $total_processed++;
+                        
+                        // Add a small delay every 10 products to prevent timeouts
+                        if ($total_processed % 10 === 0) {
+                            usleep(50000); // 50ms pause
+                            // Update process timestamp periodically to show we're still alive
+                            update_option( DOOP_PROCESS_OPTION, time() );
+                        }
+                    } catch (Exception $e) {
+                        $this->logger->log("Error processing product #$product_id: " . $e->getMessage());
+                        continue; // Skip to next product on error
                     }
                 }
-
-                // Delete the product
-                $this->logger->log("Deleting product #$product_id: $product_name");
-                $result = wp_delete_post( $product_id, true );
                 
-                if ( $result ) {
-                    $this->logger->log("Successfully deleted product #$product_id");
-                    $deleted++;
-                } else {
-                    $this->logger->log("Failed to delete product #$product_id");
-                }
+                $offset += $batch_size;
                 
-                $total_processed++;
+                // Free up memory
+                wp_cache_flush();
                 
-                // Add a small delay every 10 products to prevent timeouts
-                if ($total_processed % 10 === 0) {
-                    usleep(50000); // 50ms pause
-                }
-            }
+                $this->logger->log("Completed batch. Total processed: $total_processed, Deleted: $deleted");
+                
+                // Update the process option to show we're still alive
+                update_option( DOOP_PROCESS_OPTION, time() );
+                
+            } while ( count( $products ) === $batch_size );
             
-            $offset += $batch_size;
-            
-            // Free up memory
-            wp_cache_flush();
-            
-            $this->logger->log("Completed batch. Total processed: $total_processed, Deleted: $deleted");
-            
-        } while ( count( $products ) === $batch_size );
+        } catch (Exception $e) {
+            $this->logger->log("Fatal error in deletion process: " . $e->getMessage());
+            $this->logger->log("Stack trace: " . $e->getTraceAsString());
+        }
         
         $this->logger->log("Deletion process complete. Total deleted: $deleted");
         
         return $deleted;
+    }
+    
+    /**
+     * Process product images for deletion
+     * 
+     * @param WC_Product $product The product object
+     * @param int $product_id The product ID
+     * @return void
+     */
+    private function process_product_images($product, $product_id) {
+        $attachment_ids = array();
+
+        // Featured image
+        $featured_image_id = $product->get_image_id();
+        if ( $featured_image_id ) {
+            $attachment_ids[] = $featured_image_id;
+        }
+
+        // Gallery images
+        $gallery_ids = $product->get_gallery_image_ids();
+        if (!empty($gallery_ids)) {
+            $attachment_ids = array_merge( $attachment_ids, $gallery_ids );
+        }
+        
+        $this->logger->log("Found " . count($attachment_ids) . " images for product #$product_id");
+
+        foreach ( $attachment_ids as $attachment_id ) {
+            if ( $attachment_id ) {
+                try {
+                    // Get attachment details for logging
+                    $attachment_path = get_attached_file($attachment_id);
+                    $attachment_url = wp_get_attachment_url($attachment_id);
+                    $file_name = basename($attachment_path);
+                    
+                    // Skip placeholder images
+                    if ( $attachment_url && $this->is_placeholder_image( $attachment_url ) ) {
+                        $this->logger->log("Skipping placeholder image #$attachment_id: $file_name");
+                        continue;
+                    }
+                    
+                    // Check if the image is used by other products or posts
+                    if ( $this->is_attachment_used_elsewhere( $attachment_id, $product_id ) ) {
+                        $this->logger->log("Skipping image #$attachment_id ($file_name) - used by other posts");
+                        continue;
+                    }
+                    
+                    // Delete the attachment
+                    $this->logger->log("Deleting image #$attachment_id: $file_name");
+                    $result = wp_delete_attachment( $attachment_id, true );
+                    
+                    if ($result) {
+                        $this->logger->log("Successfully deleted image #$attachment_id");
+                    } else {
+                        $this->logger->log("Failed to delete image #$attachment_id");
+                    }
+                } catch (Exception $e) {
+                    $this->logger->log("Error processing image #$attachment_id: " . $e->getMessage());
+                }
+            }
+        }
     }
 
     /**
