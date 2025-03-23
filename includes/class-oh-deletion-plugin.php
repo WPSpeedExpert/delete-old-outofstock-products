@@ -214,6 +214,9 @@ class OH_Deletion_Plugin {
             wp_die( esc_html__( 'Security check failed. Please try again.', 'delete-old-outofstock-products' ) );
         }
         
+        // Set a flag to prevent the cron schedule refresh redirect - Set this early
+        update_option('oh_doop_manual_process', true);
+        
         // Check if process is already running
         $is_running = get_option( DOOP_PROCESS_OPTION, false );
         if ($is_running && $is_running !== 0) {
@@ -284,9 +287,6 @@ class OH_Deletion_Plugin {
         $current_user = wp_get_current_user();
         $this->logger->log("Manual deletion process initiated by user: " . $current_user->user_login);
         
-        // Set a flag to prevent the cron schedule refresh redirect
-        update_option('oh_doop_manual_process', true);
-        
         // For small batches or testing, run directly for immediate feedback
         if ($eligible_count < 10) {
             $this->logger->log("Running deletion process directly (small number of products)");
@@ -316,17 +316,16 @@ class OH_Deletion_Plugin {
         // For larger numbers, use the background process
         $this->logger->log("Starting deletion process in the background");
         
-        // Instead of scheduling through WP-Cron, run the process in a non-blocking way
-        wp_schedule_single_event(time(), DOOP_CRON_HOOK);
+        // Run the process immediately in this request
+        // This works better than scheduling through WP-Cron
+        $this->run_scheduled_deletion();
         
-        // Tell WordPress to run the cron immediately after redirect
-        add_action('shutdown', 'spawn_cron');
-        
-        // Redirect to the monitoring page with a special parameter
+        // Redirect to the results page
         wp_redirect(add_query_arg(
             array(
                 'page' => 'doop-settings',
-                'deletion_status' => 'running',
+                'deletion_status' => 'completed',
+                'deleted' => get_option(DOOP_RESULT_OPTION, 0),
                 'manual' => '1',
                 't' => time()
             ),
@@ -334,3 +333,4 @@ class OH_Deletion_Plugin {
         ));
         exit;
     }
+}
