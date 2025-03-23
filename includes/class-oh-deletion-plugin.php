@@ -4,7 +4,7 @@
  * Main plugin class for Delete Old Out-of-Stock Products
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.3.1
+ * @version 2.3.8
  * @since 2.2.3
  */
 
@@ -201,7 +201,7 @@ class OH_Deletion_Plugin {
         return $deleted;
     }
     
-/**
+    /**
      * 3.2 Handle manual run of the product deletion process
      */
     public function handle_manual_run() {
@@ -345,3 +345,4 @@ class OH_Deletion_Plugin {
         ));
         exit;
     }
+}
