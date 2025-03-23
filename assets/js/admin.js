@@ -5,7 +5,7 @@
  * Handles AJAX status monitoring and UI updates for the product deletion process.
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.3.0
+ * @version 2.3.6
  */
 
 /**
@@ -40,10 +40,22 @@
         // Initialize log viewer
         initLogViewer();
         
-        // Start status monitoring if process is running
-        if (ohDoopData.isRunning || ohDoopData.deletionStatus === 'running') {
+        // Check initial status based on URL parameters or data attribute
+        const deletionStatus = ohDoopData.deletionStatus;
+        
+        // Start status monitoring if process is running or marked as running
+        if (ohDoopData.isRunning || deletionStatus === 'running') {
             initStatusMonitoring();
         }
+        
+        // Handle manual run button click
+        $('form[action*="oh_run_product_deletion"]').on('submit', function() {
+            // Show spinner next to button
+            $('.oh-status-indicator').addClass('running').html('<span class="spinner is-active" style="float:none; margin:0;"></span>');
+            
+            // Don't disable the button here - let the form submit normally
+            // After redirect, the status will be monitored via AJAX
+        });
     });
     
     // 2. STATUS MONITORING
@@ -71,6 +83,9 @@
         checkStatus();
         
         // Set up interval (check every 5 seconds)
+        if (checkInterval) {
+            clearInterval(checkInterval);
+        }
         checkInterval = setInterval(checkStatus, 5000);
     }
     
@@ -84,7 +99,7 @@
         isPolling = true;
         
         $.ajax({
-            url: ajaxurl,
+            url: ohDoopData.ajaxUrl,
             type: 'POST',
             data: {
                 action: 'oh_check_deletion_status',
@@ -93,10 +108,27 @@
             success: function(response) {
                 if (response.success) {
                     updateUI(response.data);
+                } else {
+                    console.error('AJAX response unsuccessful', response);
+                    // Still mark as not polling so we can try again
+                    isPolling = false;
                 }
+            },
+            error: function(xhr, status, error) {
+                console.error('AJAX error:', status, error);
+                
+                // Handle error - show message in status area
+                let statusEl = $('#oh-process-status');
+                statusEl.addClass('error').html(
+                    '<p><strong>Error checking status</strong></p>' +
+                    '<p>There was a problem communicating with the server. Will try again shortly.</p>'
+                );
+                
+                // Mark as not polling so we can try again
                 isPolling = false;
             },
-            error: function() {
+            complete: function() {
+                // Always ensure isPolling is reset, even if there's another error
                 isPolling = false;
             }
         });
@@ -217,7 +249,7 @@
         
         // Load log content via AJAX
         $.ajax({
-            url: ajaxurl,
+            url: ohDoopData.ajaxUrl,
             type: 'POST',
             data: {
                 action: 'oh_get_deletion_log',
@@ -233,7 +265,8 @@
                 // Scroll to bottom of log
                 logEl.scrollTop(logEl[0].scrollHeight);
             },
-            error: function() {
+            error: function(xhr, status, error) {
+                console.error('Error loading log:', status, error);
                 logEl.html(ohDoopData.strings.errorLog);
             }
         });
