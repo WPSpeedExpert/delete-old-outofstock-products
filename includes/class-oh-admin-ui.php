@@ -349,9 +349,12 @@ class OH_Admin_UI {
                     'viewLog' => __( 'View Log', 'delete-old-outofstock-products' ),
                     'hideLog' => __( 'Hide Log', 'delete-old-outofstock-products' ),
                     'navigateAway' => __( 'You can navigate away from this page. The process will continue in the background.', 'delete-old-outofstock-products' ),
+                    'error' => __( 'Error checking status', 'delete-old-outofstock-products' ),
+                    'tryAgain' => __( 'There was a problem communicating with the server. Will try again shortly.', 'delete-old-outofstock-products' ),
                 ),
                 'isRunning' => get_option( DOOP_PROCESS_OPTION, false ) && get_option( DOOP_PROCESS_OPTION, false ) !== 0,
                 'deletionStatus' => isset( $_GET['deletion_status'] ) ? sanitize_text_field( $_GET['deletion_status'] ) : '',
+                'version' => DOOP_VERSION
             )
         );
     }
