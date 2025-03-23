@@ -4,8 +4,7 @@
  * Main plugin class for Delete Old Out-of-Stock Products
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.3.8
- * @since 2.2.3
+ * @version 2.4.1
  */
 
 /**
@@ -24,7 +23,7 @@
  * 3. PRODUCT DELETION
  *    3.1 Run scheduled deletion
  *    3.2 Handle manual process
- *    3.3 Background processing
+ *    3.3 AJAX fallback trigger
  */
 
 // Exit if accessed directly.
@@ -111,6 +110,10 @@ class OH_Deletion_Plugin {
         // Cron action
         add_action( DOOP_CRON_HOOK, array( $this, 'run_scheduled_deletion' ) );
         add_action( DOOP_CRON_HOOK, array( $this, 'update_last_cron_time' ) );
+        
+        // Add AJAX action for fallback deletion trigger
+        add_action('wp_ajax_oh_trigger_deletion', array($this, 'ajax_trigger_deletion'));
+        add_action('wp_ajax_nopriv_oh_trigger_deletion', array($this, 'ajax_trigger_deletion'));
     }
     
     // 2. PLUGIN LIFECYCLE
@@ -192,13 +195,24 @@ class OH_Deletion_Plugin {
         $this->logger->log("Starting scheduled deletion process");
         update_option( DOOP_PROCESS_OPTION, time() );
         
-        $deleted = $this->processor->delete_old_out_of_stock_products();
-        
-        update_option( DOOP_RESULT_OPTION, $deleted );
-        update_option( DOOP_PROCESS_OPTION, 0 ); // Mark as completed
-        
-        $this->logger->log("Scheduled deletion process completed. Deleted $deleted products.");
-        return $deleted;
+        try {
+            $deleted = $this->processor->delete_old_out_of_stock_products();
+            
+            update_option( DOOP_RESULT_OPTION, $deleted );
+            update_option( DOOP_PROCESS_OPTION, 0 ); // Mark as completed
+            
+            $this->logger->log("Scheduled deletion process completed. Deleted $deleted products.");
+            return $deleted;
+        } catch (Exception $e) {
+            $this->logger->log("Error in scheduled deletion process: " . $e->getMessage());
+            $this->logger->log("Stack trace: " . $e->getTraceAsString());
+            
+            // Mark as completed with error to prevent getting stuck
+            update_option( DOOP_PROCESS_OPTION, 0 );
+            update_option( DOOP_RESULT_OPTION, 0 );
+            
+            return 0;
+        }
     }
     
     /**
@@ -229,15 +243,6 @@ class OH_Deletion_Plugin {
             exit;
         }
         
-        // Count eligible products
-        $options = get_option( DOOP_OPTIONS_KEY, array(
-            'product_age' => 18,
-            'delete_images' => 'yes',
-        ));
-        
-        $product_age = isset( $options['product_age'] ) ? absint( $options['product_age'] ) : 18;
-        $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
-        
         // Set a flag that the process is starting
         update_option( DOOP_PROCESS_OPTION, time() );
         delete_option( DOOP_RESULT_OPTION ); // Clear previous results
@@ -248,6 +253,14 @@ class OH_Deletion_Plugin {
         
         try {
             // Count eligible products
+            $options = get_option( DOOP_OPTIONS_KEY, array(
+                'product_age' => 18,
+                'delete_images' => 'yes',
+            ));
+            
+            $product_age = isset( $options['product_age'] ) ? absint( $options['product_age'] ) : 18;
+            $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
+            
             $eligible_query = new WP_Query( array(
                 'post_type'      => 'product',
                 'post_status'    => 'publish',
@@ -293,8 +306,8 @@ class OH_Deletion_Plugin {
         // Set a flag to prevent the cron schedule refresh redirect
         update_option('oh_doop_manual_process', true);
         
-        // For small batches or testing, run directly for immediate feedback
-        if (isset($eligible_count) && $eligible_count < 10) {
+        // For small batches, run directly for immediate feedback
+        if (isset($eligible_count) && $eligible_count < 20) {
             $this->logger->log("Running deletion process directly (small number of products)");
             
             try {
@@ -327,11 +340,31 @@ class OH_Deletion_Plugin {
         // For larger numbers or if direct processing failed, use the background process
         $this->logger->log("Starting deletion process in the background");
         
-        // Schedule the event to run immediately
-        wp_schedule_single_event(time(), DOOP_CRON_HOOK);
+        // Setup immediate execution
+        if (!wp_next_scheduled(DOOP_CRON_HOOK)) {
+            // Schedule the event to run immediately
+            wp_schedule_single_event(time(), DOOP_CRON_HOOK);
+            $this->logger->log("Scheduled immediate deletion event");
+        } else {
+            $this->logger->log("Deletion event already scheduled");
+        }
         
-        // Tell WordPress to run the cron immediately after redirect
-        add_action('shutdown', 'spawn_cron');
+        // Make sure the cron system is triggered
+        $this->logger->log("Spawning cron system to run event immediately");
+        spawn_cron();
+        
+        // Add a direct trigger as fallback in case wp-cron is unreliable
+        if ($eligible_count > 0 && $eligible_count <= 50) {
+            $this->logger->log("Adding immediate fallback trigger for small batch");
+            wp_remote_post(admin_url('admin-ajax.php'), array(
+                'blocking' => false,
+                'sslverify' => false,
+                'body' => array(
+                    'action' => 'oh_trigger_deletion',
+                    'security' => wp_create_nonce('oh_trigger_deletion_nonce')
+                )
+            ));
+        }
         
         // Redirect to the monitoring page with a special parameter
         wp_redirect(add_query_arg(
@@ -344,5 +377,47 @@ class OH_Deletion_Plugin {
             admin_url('admin.php')
         ));
         exit;
+    }
+    
+    /**
+     * 3.3 AJAX handler to directly trigger the deletion process as fallback
+     */
+    public function ajax_trigger_deletion() {
+        // Verify nonce
+        if (!isset($_POST['security']) || !wp_verify_nonce($_POST['security'], 'oh_trigger_deletion_nonce')) {
+            wp_send_json_error('Invalid security token');
+            return;
+        }
+        
+        // Check if process is already running properly
+        $is_running = get_option(DOOP_PROCESS_OPTION, false);
+        $start_time = intval($is_running);
+        $current_time = time();
+        
+        // Only run if the process appears to be stuck (started more than 2 minutes ago)
+        if ($start_time > 0 && ($current_time - $start_time) > 120) {
+            $this->logger->log("Fallback AJAX trigger activated - process appears stuck for " . 
+                human_time_diff($start_time, $current_time));
+            
+            try {
+                // Run the deletion process directly
+                $deleted = $this->processor->delete_old_out_of_stock_products();
+                
+                // Update results
+                update_option(DOOP_RESULT_OPTION, $deleted);
+                update_option(DOOP_PROCESS_OPTION, 0); // Mark as complete
+                
+                $this->logger->log("AJAX fallback deletion process completed. Deleted $deleted products.");
+                wp_send_json_success(array('deleted' => $deleted));
+            } catch (Exception $e) {
+                $this->logger->log("Error in AJAX fallback deletion: " . $e->getMessage());
+                wp_send_json_error('Error: ' . $e->getMessage());
+            }
+        } else {
+            // Process is either not running or started recently
+            wp_send_json_success(array('status' => 'Deletion already in progress or not needed'));
+        }
+        
+        die();
     }
 }
