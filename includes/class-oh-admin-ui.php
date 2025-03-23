@@ -4,7 +4,7 @@
  * Admin UI class for Delete Old Out-of-Stock Products
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.3.0
+ * @version 2.3.1
  * @since 2.2.3
  */
 
