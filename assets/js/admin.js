@@ -1,17 +1,41 @@
 /**
  * Filename: assets/js/admin.js
- * 
  * Admin JavaScript for Delete Old Out-of-Stock Products
+ *
  * Handles AJAX status monitoring and UI updates for the product deletion process.
  *
  * @package Delete_Old_Outofstock_Products
  * @version 2.3.0
  */
 
+/**
+ * TABLE OF CONTENTS:
+ *
+ * 1. INITIALIZATION
+ *    1.1 Document ready handler
+ *    1.2 Global variables
+ *
+ * 2. STATUS MONITORING
+ *    2.1 Status check function
+ *    2.2 UI updates
+ *
+ * 3. LOG FUNCTIONALITY
+ *    3.1 Log viewer toggle
+ *    3.2 Log content loading
+ */
+
 (function($) {
     'use strict';
     
-    // Document ready
+    // 1. INITIALIZATION
+    // ====================================
+    
+    // 1.1 Global variables
+    let checkInterval = null;
+    let isPolling = false;
+    let viewingLog = false;
+    
+    // 1.2 Document ready handler
     $(document).ready(function() {
         // Initialize log viewer
         initLogViewer();
@@ -22,14 +46,10 @@
         }
     });
     
-    // Global variables
-    let checkInterval = null;
-    let isPolling = false;
-    let viewingLog = false;
+    // 2. STATUS MONITORING
+    // ====================================
     
-    /**
-     * Initialize status monitoring
-     */
+    // 2.1 Initialize status monitoring
     function initStatusMonitoring() {
         // Create status container if not present
         let statusEl = $('#oh-process-status');
@@ -54,9 +74,7 @@
         checkInterval = setInterval(checkStatus, 5000);
     }
     
-    /**
-     * Check current status via AJAX
-     */
+    // 2.2 Check current status via AJAX
     function checkStatus() {
         // Prevent multiple simultaneous requests
         if (isPolling) {
@@ -66,10 +84,10 @@
         isPolling = true;
         
         $.ajax({
-            url: ohDoopData.ajaxUrl,
+            url: ajaxurl,
             type: 'POST',
             data: {
-                action: ohDoopData.action,
+                action: 'oh_check_deletion_status',
                 security: ohDoopData.nonce
             },
             success: function(response) {
@@ -84,9 +102,7 @@
         });
     }
     
-    /**
-     * Update UI based on status response
-     */
+    // 2.3 Update UI based on status response
     function updateUI(data) {
         let statusEl = $('#oh-process-status');
         
@@ -168,25 +184,22 @@
         }
     }
     
-    /**
-     * Initialize log viewer
-     */
+    // 3. LOG FUNCTIONALITY
+    // ====================================
+    
+    // 3.1 Initialize log viewer
     function initLogViewer() {
         bindLogButton();
     }
     
-    /**
-     * Bind log button click event
-     */
+    // 3.2 Bind log button click event
     function bindLogButton() {
         $('.oh-view-log-btn').off('click').on('click', function() {
             toggleLogView();
         });
     }
     
-    /**
-     * Toggle log view
-     */
+    // 3.3 Toggle log view
     function toggleLogView() {
         let logEl = $('#oh-deletion-log');
         
@@ -204,7 +217,7 @@
         
         // Load log content via AJAX
         $.ajax({
-            url: ohDoopData.ajaxUrl,
+            url: ajaxurl,
             type: 'POST',
             data: {
                 action: 'oh_get_deletion_log',
