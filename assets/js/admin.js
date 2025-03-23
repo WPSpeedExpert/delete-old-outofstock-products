@@ -5,40 +5,106 @@
  * Handles AJAX status monitoring and UI updates for the product deletion process.
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.3.8
+ * @version 2.3.9
+ */
+
+/**
+ * TABLE OF CONTENTS:
+ *
+ * 1. INITIALIZATION
+ *    1.1 Document ready handler
+ *    1.2 Global variables
+ *
+ * 2. FORM SUBMISSION HANDLING
+ *    2.1 Form interception
+ *    2.2 AJAX submission
+ * 
+ * 3. STATUS MONITORING
+ *    3.1 Status check function
+ *    3.2 UI updates
+ *
+ * 4. LOG FUNCTIONALITY
+ *    4.1 Log viewer toggle
+ *    4.2 Log content loading
  */
 
 (function($) {
     'use strict';
     
-    // Global variables
+    // 1. INITIALIZATION
+    // ====================================
+    
+    // 1.1 Global variables
     let checkInterval = null;
     let isPolling = false;
     let viewingLog = false;
     let debug = true; // Enable for debugging
     
-    // Document ready handler
+    // 1.2 Document ready handler
     $(document).ready(function() {
         if (debug) console.log('DOOP Admin JS initialized');
         
         // Initialize log viewer
         initLogViewer();
         
-        // Track manual run form submission
-        $('form[action*="admin-post.php"]').on('submit', function(e) {
-            if (debug) console.log('Manual run form submitted');
-            localStorage.setItem('oh_doop_manual_run', 'initiated');
-            localStorage.setItem('oh_doop_manual_run_time', Date.now());
-            // Let the form submit normally
-        });
+        // 2. FORM SUBMISSION HANDLING
+        // ====================================
         
-        // Check if we just came back from a form submission
-        if (localStorage.getItem('oh_doop_manual_run') === 'initiated') {
-            if (debug) console.log('Detected previous form submission, starting monitoring');
-            // Remove the flag but start monitoring
-            localStorage.removeItem('oh_doop_manual_run');
-            initStatusMonitoring();
-        }
+        // 2.1 Direct form handling for manual run
+        $('form[action*="admin-post.php"]').on('submit', function(e) {
+            e.preventDefault(); // Prevent default form submission
+            
+            if (debug) console.log('Form submission intercepted');
+            
+            // Show processing state immediately
+            $('.oh-status-indicator').addClass('running').html('<span class="spinner is-active" style="float:none; margin:0;"></span>');
+            
+            // Create status display if it doesn't exist
+            let statusEl = $('#oh-process-status');
+            if (statusEl.length === 0) {
+                $('.wrap').prepend('<div id="oh-process-status"></div>');
+                statusEl = $('#oh-process-status');
+            }
+            
+            statusEl.show().removeClass('success error').html(
+                '<p><strong>Starting cleanup process...</strong></p>' +
+                '<p>This may take a moment, please wait...</p>'
+            );
+            
+            // Get form data
+            var formData = new FormData(this);
+            
+            // Submit the form via AJAX instead of regular form submission
+            $.ajax({
+                url: $(this).attr('action'),
+                type: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(response) {
+                    if (debug) console.log('Manual run form submitted successfully');
+                    
+                    // Start monitoring the deletion process status
+                    checkStatus();
+                    
+                    // Clear existing intervals
+                    if (checkInterval) {
+                        clearInterval(checkInterval);
+                    }
+                    
+                    // Set interval to check status regularly
+                    checkInterval = setInterval(checkStatus, 3000);
+                },
+                error: function(xhr, status, error) {
+                    if (debug) console.error('Form submission error:', error);
+                    statusEl.addClass('error').html(
+                        '<p><strong>Error starting cleanup</strong></p>' +
+                        '<p>There was a problem starting the cleanup process. Please try again.</p>'
+                    );
+                    $('.oh-status-indicator').removeClass('running').html('');
+                }
+            });
+        });
         
         // Check URL parameters for status indications
         const urlParams = new URLSearchParams(window.location.search);
@@ -55,7 +121,10 @@
         }
     });
     
-    // Initialize status monitoring
+    // 3. STATUS MONITORING
+    // ====================================
+    
+    // 3.1 Initialize status monitoring
     function initStatusMonitoring() {
         if (debug) console.log('Initializing status monitoring');
         
@@ -87,7 +156,7 @@
         checkInterval = setInterval(checkStatus, 3000);
     }
     
-    // Check current status via AJAX
+    // 3.2 Check current status via AJAX
     function checkStatus() {
         // Prevent multiple simultaneous requests
         if (isPolling) {
@@ -140,7 +209,7 @@
         });
     }
     
-    // Update UI based on status response
+    // 3.3 Update UI based on status response
     function updateUI(data) {
         if (debug) console.log('Updating UI with data:', data);
         
@@ -243,19 +312,22 @@
         }
     }
     
-    // Initialize log viewer
+    // 4. LOG FUNCTIONALITY
+    // ====================================
+    
+    // 4.1 Initialize log viewer
     function initLogViewer() {
         bindLogButton();
     }
     
-    // Bind log button click event
+    // 4.2 Bind log button click event
     function bindLogButton() {
         $('.oh-view-log-btn').off('click').on('click', function() {
             toggleLogView();
         });
     }
     
-    // Toggle log view
+    // 4.3 Toggle log view
     function toggleLogView() {
         let logEl = $('#oh-deletion-log');
         
