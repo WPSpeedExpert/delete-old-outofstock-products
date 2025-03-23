@@ -47,8 +47,9 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-// 1.2 Define constants
-define( 'DOOP_VERSION', '2.4.0' );
+// 1.2 Define constants - Use plugin header version for DOOP_VERSION
+$plugin_data = get_file_data(__FILE__, array('Version' => 'Version'), 'plugin');
+define( 'DOOP_VERSION', $plugin_data['Version'] );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
