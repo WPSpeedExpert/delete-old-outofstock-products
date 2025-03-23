@@ -214,9 +214,6 @@ class OH_Deletion_Plugin {
             wp_die( esc_html__( 'Security check failed. Please try again.', 'delete-old-outofstock-products' ) );
         }
         
-        // Set a flag to prevent the cron schedule refresh redirect - Set this early
-        update_option('oh_doop_manual_process', true);
-        
         // Check if process is already running
         $is_running = get_option( DOOP_PROCESS_OPTION, false );
         if ($is_running && $is_running !== 0) {
@@ -283,6 +280,9 @@ class OH_Deletion_Plugin {
         update_option( DOOP_PROCESS_OPTION, time() );
         delete_option( DOOP_RESULT_OPTION ); // Clear previous results
         
+        // Set a flag to prevent auto-refresh
+        update_option('oh_doop_manual_process', true);
+        
         // Log the manual run
         $current_user = wp_get_current_user();
         $this->logger->log("Manual deletion process initiated by user: " . $current_user->user_login);
@@ -299,38 +299,24 @@ class OH_Deletion_Plugin {
             update_option( DOOP_PROCESS_OPTION, 0 ); // Mark as complete
             
             $this->logger->log("Manual deletion process completed directly. Deleted $deleted products.");
-            
-            // Redirect to the completion page
-            wp_redirect(add_query_arg(
-                array(
-                    'page' => 'doop-settings',
-                    'deletion_status' => 'completed',
-                    'deleted' => $deleted,
-                    't' => time()
-                ),
-                admin_url('admin.php')
-            ));
-            exit;
+        } else {
+            // For larger batches, schedule for background processing
+            $this->logger->log("Scheduling deletion process for background processing");
+            wp_schedule_single_event(time(), DOOP_CRON_HOOK);
         }
         
-        // For larger numbers, use the background process
-        $this->logger->log("Starting deletion process in the background");
-        
-        // Run the process immediately in this request
-        // This works better than scheduling through WP-Cron
-        $this->run_scheduled_deletion();
-        
-        // Redirect to the results page
-        wp_redirect(add_query_arg(
+        // Return JavaScript to redirect properly with status monitoring
+        echo '<html><head><script>
+        window.location.href = "' . esc_url(add_query_arg(
             array(
                 'page' => 'doop-settings',
-                'deletion_status' => 'completed',
-                'deleted' => get_option(DOOP_RESULT_OPTION, 0),
+                'deletion_status' => 'running',
                 'manual' => '1',
                 't' => time()
             ),
             admin_url('admin.php')
-        ));
+        )) . '";
+        </script></head></html>';
         exit;
     }
 }
