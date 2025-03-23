@@ -5,64 +5,60 @@
  * Handles AJAX status monitoring and UI updates for the product deletion process.
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.3.6
- */
-
-/**
- * TABLE OF CONTENTS:
- *
- * 1. INITIALIZATION
- *    1.1 Document ready handler
- *    1.2 Global variables
- *
- * 2. STATUS MONITORING
- *    2.1 Status check function
- *    2.2 UI updates
- *
- * 3. LOG FUNCTIONALITY
- *    3.1 Log viewer toggle
- *    3.2 Log content loading
+ * @version 2.3.8
  */
 
 (function($) {
     'use strict';
     
-    // 1. INITIALIZATION
-    // ====================================
-    
-    // 1.1 Global variables
+    // Global variables
     let checkInterval = null;
     let isPolling = false;
     let viewingLog = false;
+    let debug = true; // Enable for debugging
     
-    // 1.2 Document ready handler
+    // Document ready handler
     $(document).ready(function() {
+        if (debug) console.log('DOOP Admin JS initialized');
+        
         // Initialize log viewer
         initLogViewer();
         
-        // Check initial status based on URL parameters or data attribute
-        const deletionStatus = ohDoopData.deletionStatus;
+        // Track manual run form submission
+        $('form[action*="admin-post.php"]').on('submit', function(e) {
+            if (debug) console.log('Manual run form submitted');
+            localStorage.setItem('oh_doop_manual_run', 'initiated');
+            localStorage.setItem('oh_doop_manual_run_time', Date.now());
+            // Let the form submit normally
+        });
         
-        // Start status monitoring if process is running or marked as running
-        if (ohDoopData.isRunning || deletionStatus === 'running') {
+        // Check if we just came back from a form submission
+        if (localStorage.getItem('oh_doop_manual_run') === 'initiated') {
+            if (debug) console.log('Detected previous form submission, starting monitoring');
+            // Remove the flag but start monitoring
+            localStorage.removeItem('oh_doop_manual_run');
             initStatusMonitoring();
         }
         
-        // Handle manual run button click
-        $('form[action*="oh_run_product_deletion"]').on('submit', function() {
-            // Show spinner next to button
-            $('.oh-status-indicator').addClass('running').html('<span class="spinner is-active" style="float:none; margin:0;"></span>');
-            
-            // Don't disable the button here - let the form submit normally
-            // After redirect, the status will be monitored via AJAX
-        });
+        // Check URL parameters for status indications
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('manual') === '1' || urlParams.get('deletion_status') === 'running') {
+            if (debug) console.log('Status monitoring started based on URL parameters');
+            initStatusMonitoring();
+        }
+        
+        // Also check the data attribute from PHP
+        if (typeof ohDoopData !== 'undefined' && 
+            (ohDoopData.isRunning || ohDoopData.deletionStatus === 'running')) {
+            if (debug) console.log('Status monitoring started based on ohDoopData');
+            initStatusMonitoring();
+        }
     });
     
-    // 2. STATUS MONITORING
-    // ====================================
-    
-    // 2.1 Initialize status monitoring
+    // Initialize status monitoring
     function initStatusMonitoring() {
+        if (debug) console.log('Initializing status monitoring');
+        
         // Create status container if not present
         let statusEl = $('#oh-process-status');
         if (statusEl.length === 0) {
@@ -72,85 +68,98 @@
         
         // Show initial status
         statusEl.removeClass('success error').show().html(
-            '<p><strong>' + ohDoopData.strings.running + '</strong></p>' +
-            '<p>' + ohDoopData.strings.navigateAway + '</p>'
+            '<p><strong>Process is running...</strong></p>' +
+            '<p>You can navigate away from this page. The process will continue in the background.</p>'
         );
         
         // Add spinner to button
         $('.oh-status-indicator').addClass('running').html('<span class="spinner is-active" style="float:none; margin:0;"></span>');
         
-        // Start checking status
+        // Start checking status immediately
         checkStatus();
         
-        // Set up interval (check every 5 seconds)
+        // Clear any existing interval
         if (checkInterval) {
             clearInterval(checkInterval);
         }
-        checkInterval = setInterval(checkStatus, 5000);
+        
+        // Set up interval (check every 3 seconds)
+        checkInterval = setInterval(checkStatus, 3000);
     }
     
-    // 2.2 Check current status via AJAX
+    // Check current status via AJAX
     function checkStatus() {
         // Prevent multiple simultaneous requests
         if (isPolling) {
+            if (debug) console.log('Already polling, skipping this check');
             return;
         }
         
+        if (debug) console.log('Checking deletion status via AJAX');
         isPolling = true;
         
         $.ajax({
-            url: ohDoopData.ajaxUrl,
+            url: ajaxurl, // WordPress global variable
             type: 'POST',
+            dataType: 'json',
             data: {
                 action: 'oh_check_deletion_status',
-                security: ohDoopData.nonce
+                security: ohDoopData.nonce,
+                _: Date.now() // Prevent caching
             },
             success: function(response) {
-                if (response.success) {
+                if (debug) console.log('AJAX response:', response);
+                
+                if (response && response.success) {
                     updateUI(response.data);
                 } else {
-                    console.error('AJAX response unsuccessful', response);
-                    // Still mark as not polling so we can try again
-                    isPolling = false;
+                    if (debug) console.error('AJAX response unsuccessful:', response);
+                    
+                    // Show error in UI
+                    let statusEl = $('#oh-process-status');
+                    statusEl.addClass('error').html(
+                        '<p><strong>Error checking status</strong></p>' +
+                        '<p>There was an issue checking the deletion status. Will try again shortly.</p>'
+                    );
                 }
             },
             error: function(xhr, status, error) {
-                console.error('AJAX error:', status, error);
+                if (debug) console.error('AJAX error:', status, error);
                 
-                // Handle error - show message in status area
+                // Show error in UI
                 let statusEl = $('#oh-process-status');
                 statusEl.addClass('error').html(
-                    '<p><strong>Error checking status</strong></p>' +
-                    '<p>There was a problem communicating with the server. Will try again shortly.</p>'
+                    '<p><strong>Error communicating with server</strong></p>' +
+                    '<p>There was a problem checking the deletion status: ' + status + '</p>'
                 );
-                
-                // Mark as not polling so we can try again
-                isPolling = false;
             },
             complete: function() {
-                // Always ensure isPolling is reset, even if there's another error
+                // Always mark as not polling so future checks can run
                 isPolling = false;
             }
         });
     }
     
-    // 2.3 Update UI based on status response
+    // Update UI based on status response
     function updateUI(data) {
+        if (debug) console.log('Updating UI with data:', data);
+        
         let statusEl = $('#oh-process-status');
         
-        // Update status message based on process state
+        // Process is running
         if (data.is_running) {
-            // Process is running
+            if (debug) console.log('Process is running');
+            
             statusEl.removeClass('success error').show().html(
-                '<p><strong>' + ohDoopData.strings.running + '</strong>' + 
-                (data.time_elapsed ? ' (' + data.time_elapsed + ' ' + ohDoopData.strings.ago + ')' : '') + '</p>' +
-                '<p>' + ohDoopData.strings.navigateAway + '</p>'
+                '<p><strong>Process is running...</strong>' + 
+                (data.time_elapsed ? ' (' + data.time_elapsed + ' ago)' : '') + '</p>' +
+                '<p>You can navigate away from this page. The process will continue in the background.</p>'
             );
             
             // Add log button if available
             if (data.has_log) {
                 statusEl.append('<p><button type="button" class="button oh-view-log-btn">' + 
-                    (viewingLog ? ohDoopData.strings.hideLog : ohDoopData.strings.viewLog) + 
+                    (viewingLog ? 'Hide Log' : 'View Log') + 
                     '</button></p>');
                 bindLogButton();
             }
@@ -158,17 +167,20 @@
             // Disable run button
             $('button[name="run_now"]').prop('disabled', true);
             $('.oh-status-indicator').addClass('running').html('<span class="spinner is-active" style="float:none; margin:0;"></span>');
-        } else if (data.is_completed) {
-            // Process completed
+        }
+        // Process completed
+        else if (data.is_completed) {
+            if (debug) console.log('Process completed, deleted:', data.deleted_count);
+            
             statusEl.removeClass('error').addClass('success').show().html(
-                '<p><strong>' + ohDoopData.strings.completed + '</strong></p>' +
-                '<p>' + data.deleted_count + ' ' + ohDoopData.strings.productsDeleted + '</p>'
+                '<p><strong>Process completed!</strong></p>' +
+                '<p>' + data.deleted_count + ' products were deleted.</p>'
             );
             
             // Add log button if available
             if (data.has_log) {
                 statusEl.append('<p><button type="button" class="button oh-view-log-btn">' + 
-                    (viewingLog ? ohDoopData.strings.hideLog : ohDoopData.strings.viewLog) + 
+                    (viewingLog ? 'Hide Log' : 'View Log') + 
                     '</button></p>');
                 bindLogButton();
             }
@@ -177,20 +189,24 @@
             $('button[name="run_now"]').prop('disabled', false);
             $('.oh-status-indicator').removeClass('running').html('');
             
-            // Stop checking status frequently
+            // Stop checking status
             clearInterval(checkInterval);
             
             // Reload page after a short delay to show updated stats
             setTimeout(function() {
+                if (debug) console.log('Reloading page with completion parameters');
                 window.location.href = window.location.href.split('?')[0] + 
                     '?page=doop-settings&deletion_status=completed&deleted=' + 
                     data.deleted_count + '&t=' + Date.now();
             }, 3000);
-        } else if (data.too_many) {
-            // Too many products
+        }
+        // Too many products
+        else if (data.too_many) {
+            if (debug) console.log('Too many products:', data.too_many_count);
+            
             statusEl.removeClass('success').addClass('error').show().html(
-                '<p><strong>' + ohDoopData.strings.tooMany + '</strong></p>' +
-                '<p>' + data.too_many_count + ' ' + ohDoopData.strings.tooManyMsg + '</p>'
+                '<p><strong>Too many products eligible for deletion</strong></p>' +
+                '<p>' + data.too_many_count + ' products eligible for deletion, which exceeds the safe limit for manual deletion (200).</p>'
             );
             
             // Enable run button
@@ -202,72 +218,84 @@
             
             // Reload page after a short delay
             setTimeout(function() {
+                if (debug) console.log('Reloading page with too_many parameters');
                 window.location.href = window.location.href.split('?')[0] + 
                     '?page=doop-settings&deletion_status=too_many&count=' + 
                     data.too_many_count + '&t=' + Date.now();
             }, 3000);
-        } else {
-            // No process running
+        }
+        // No process running
+        else {
+            if (debug) console.log('No process running');
+            
             $('button[name="run_now"]').prop('disabled', false);
             $('.oh-status-indicator').removeClass('running').html('');
+            
+            // Keep the status area visible if we previously showed something
+            if (statusEl.html()) {
+                statusEl.removeClass('error success').html(
+                    '<p>No deletion process is currently running.</p>'
+                );
+            }
             
             // Stop frequent checking
             clearInterval(checkInterval);
         }
     }
     
-    // 3. LOG FUNCTIONALITY
-    // ====================================
-    
-    // 3.1 Initialize log viewer
+    // Initialize log viewer
     function initLogViewer() {
         bindLogButton();
     }
     
-    // 3.2 Bind log button click event
+    // Bind log button click event
     function bindLogButton() {
         $('.oh-view-log-btn').off('click').on('click', function() {
             toggleLogView();
         });
     }
     
-    // 3.3 Toggle log view
+    // Toggle log view
     function toggleLogView() {
         let logEl = $('#oh-deletion-log');
         
         if (logEl.is(':visible')) {
             logEl.hide();
-            $('.oh-view-log-btn').text(ohDoopData.strings.viewLog);
+            $('.oh-view-log-btn').text('View Log');
             viewingLog = false;
             return;
         }
         
         // Show loading indicator
-        logEl.show().html(ohDoopData.strings.loadingLog);
-        $('.oh-view-log-btn').text(ohDoopData.strings.hideLog);
+        logEl.show().html('Loading log...');
+        $('.oh-view-log-btn').text('Hide Log');
         viewingLog = true;
         
         // Load log content via AJAX
         $.ajax({
-            url: ohDoopData.ajaxUrl,
+            url: ajaxurl,
             type: 'POST',
+            dataType: 'json',
             data: {
                 action: 'oh_get_deletion_log',
-                security: ohDoopData.nonce
+                security: ohDoopData.nonce,
+                _: Date.now() // Prevent caching
             },
             success: function(response) {
-                if (response.success && response.data.log_content) {
+                if (debug) console.log('Log content response:', response);
+                
+                if (response && response.success && response.data.log_content) {
                     logEl.html(response.data.log_content);
                 } else {
-                    logEl.html(ohDoopData.strings.noLog);
+                    logEl.html('No log content available');
                 }
                 
                 // Scroll to bottom of log
                 logEl.scrollTop(logEl[0].scrollHeight);
             },
             error: function(xhr, status, error) {
-                console.error('Error loading log:', status, error);
-                logEl.html(ohDoopData.strings.errorLog);
+                if (debug) console.error('Error loading log:', status, error);
+                logEl.html('Error loading log content');
             }
         });
     }
