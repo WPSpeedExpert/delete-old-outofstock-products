@@ -18,9 +18,6 @@
  *
  * This is the main plugin file that initializes all functionality for 
  * Delete Old Out-of-Stock Products plugin.
- *
- * @package Delete_Old_Outofstock_Products
- * @version 2.4.0
  */
 
 /**
