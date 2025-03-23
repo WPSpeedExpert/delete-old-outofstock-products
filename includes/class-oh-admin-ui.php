@@ -207,13 +207,26 @@ class OH_Admin_UI {
         $is_completed_value = ($is_running === 0 && $last_run_count !== false);
         $too_many_value = ($too_many_count !== false && $too_many_count > 0);
         
+        // Calculate elapsed time if running and check for stuck processes
+        $time_elapsed = '';
+        $is_stuck = false;
+        if ($is_running_value && is_numeric($is_running)) {
+            $time_elapsed = human_time_diff(intval($is_running), current_time('timestamp'));
+            
+            // Check if process might be stuck (running for more than 10 minutes)
+            if ((current_time('timestamp') - intval($is_running)) > 600) {
+                $is_stuck = true;
+            }
+        }
+        
         $response = array(
             'is_running' => $is_running_value,
             'is_completed' => $is_completed_value, 
             'too_many' => $too_many_value,
             'deleted_count' => $last_run_count !== false ? intval($last_run_count) : 0,
             'too_many_count' => $too_many_count !== false ? intval($too_many_count) : 0,
-            'time_elapsed' => $is_running ? human_time_diff(intval($is_running), current_time('timestamp')) : '',
+            'time_elapsed' => $time_elapsed,
+            'is_stuck' => $is_stuck,
             'has_log' => $this->logger->log_exists(),
             // Add debug information
             'debug' => array(
@@ -221,9 +234,12 @@ class OH_Admin_UI {
                 'last_run_count_raw' => $last_run_count,
                 'too_many_count_raw' => $too_many_count,
                 'current_time' => current_time('timestamp'),
+                'process_time' => is_numeric($is_running) ? intval($is_running) : 0,
+                'time_difference' => is_numeric($is_running) ? (current_time('timestamp') - intval($is_running)) : 0,
                 'timestamp' => time()
             ),
             'server_time' => current_time('mysql'),
+            'products_processed' => 0, // Will be updated in future versions
         );
         
         wp_send_json_success( $response );
