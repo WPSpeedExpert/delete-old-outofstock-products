@@ -681,80 +681,81 @@ class OH_Admin_UI {
                 
                 <p><?php esc_html_e( 'Click the button below to manually run the deletion process.', 'delete-old-outofstock-products' ); ?></p>
                 <p><em><?php esc_html_e( 'Note: The cleanup process runs in the background and you can navigate away after starting it.', 'delete-old-outofstock-products' ); ?></em></p>
-                
-                <?php if ( $is_running && $is_running !== 0 ) : ?>
-                    <p><strong><?php esc_html_e( 'A cleanup process is already running. Please wait for it to complete.', 'delete-old-outofstock-products' ); ?></strong></p>
-                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=doop-settings' ) ); ?>" class="button"><?php esc_html_e( 'Refresh Status', 'delete-old-outofstock-products' ); ?></a>
-                <?php else : ?>
-                    <div class="manual-run-container">
-                        <?php wp_nonce_field('oh_run_product_deletion_nonce', 'oh_nonce'); ?>
-                        <button type="button" id="oh-run-manual-cleanup" class="button button-primary">
-                            <?php esc_html_e('Run Product Cleanup Now', 'delete-old-outofstock-products'); ?>
-                        </button>
-                        <span id="oh-cleanup-spinner" class="spinner" style="float:none; margin-left:10px;"></span>
-                        <div id="oh-cleanup-message" style="display:none; margin-top:10px;" class="notice inline"></div>
-                    </div>
-    
-                    <script type="text/javascript">
-                    jQuery(document).ready(function($) {
-                        // Manual run button handler
-                        $('#oh-run-manual-cleanup').on('click', function() {
-                            if (confirm('<?php esc_html_e("Are you sure you want to run the product cleanup now?", "delete-old-outofstock-products"); ?>')) {
                                 
-                                // Show spinner and disable button
-                                $('#oh-cleanup-spinner').addClass('is-active');
-                                $(this).prop('disabled', true);
-                                
-                                // Send AJAX request
-                                $.ajax({
-                                    url: ajaxurl,
-                                    type: 'POST',
-                                    data: {
-                                        action: 'oh_run_manual_cleanup',
-                                        nonce: $('#oh_nonce').val()
-                                    },
-                                    success: function(response) {
-                                        // Hide spinner and re-enable button
-                                        $('#oh-cleanup-spinner').removeClass('is-active');
-                                        $('#oh-run-manual-cleanup').prop('disabled', false);
-                                        
-                                        // Show result message
-                                        if (response.success) {
-                                            $('#oh-cleanup-message')
-                                                .html('<p><strong>' + response.data.message + '</strong></p>')
-                                                .removeClass('notice-error')
-                                                .addClass('notice-success')
-                                                .show();
+                                <?php if ( $is_running && $is_running !== 0 ) : ?>
+                                    <p><strong><?php esc_html_e( 'A cleanup process is already running. Please wait for it to complete.', 'delete-old-outofstock-products' ); ?></strong></p>
+                                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=doop-settings' ) ); ?>" class="button"><?php esc_html_e( 'Refresh Status', 'delete-old-outofstock-products' ); ?></a>
+                                <?php else : ?>
+                                    <div class="manual-run-container">
+                                        <?php wp_nonce_field('oh_run_product_deletion_nonce', 'oh_nonce'); ?>
+                                        <button type="button" id="oh-run-manual-cleanup" class="button button-primary">
+                                            <?php esc_html_e('Run Product Cleanup Now', 'delete-old-outofstock-products'); ?>
+                                        </button>
+                                        <span id="oh-cleanup-spinner" class="spinner" style="float:none; margin-left:10px;"></span>
+                                        <div id="oh-cleanup-message" style="display:none; margin-top:10px;" class="notice inline"></div>
+                                    </div>
+                    
+                                    <script type="text/javascript">
+                                    jQuery(document).ready(function($) {
+                                        // Manual run button handler
+                                        $('#oh-run-manual-cleanup').on('click', function() {
+                                            if (confirm('<?php esc_html_e("Are you sure you want to run the product cleanup now?", "delete-old-outofstock-products"); ?>')) {
                                                 
-                                            // Refresh stats after 2 seconds
-                                            setTimeout(function() {
-                                                window.location.reload();
-                                            }, 2000);
-                                        } else {
-                                            $('#oh-cleanup-message')
-                                                .html('<p><strong>' + response.data.message + '</strong></p>')
-                                                .removeClass('notice-success')
-                                                .addClass('notice-error')
-                                                .show();
-                                        }
-                                    },
-                                    error: function() {
-                                        // Handle error
-                                        $('#oh-cleanup-spinner').removeClass('is-active');
-                                        $('#oh-run-manual-cleanup').prop('disabled', false);
-                                        $('#oh-cleanup-message')
-                                            .html('<p><strong><?php esc_html_e("An error occurred. Please try again.", "delete-old-outofstock-products"); ?></strong></p>')
-                                            .removeClass('notice-success')
-                                            .addClass('notice-error')
-                                            .show();
-                                    }
-                                });
-                            }
-                        });
-                    });
-                    </script>
-                <?php endif; ?>
-            </div>
-        </div>
-        <?php
-    }
+                                                // Show spinner and disable button
+                                                $('#oh-cleanup-spinner').addClass('is-active');
+                                                $(this).prop('disabled', true);
+                                                
+                                                // Send AJAX request
+                                                $.ajax({
+                                                    url: ajaxurl,
+                                                    type: 'POST',
+                                                    data: {
+                                                        action: 'oh_run_manual_cleanup',
+                                                        nonce: $('#oh_nonce').val()
+                                                    },
+                                                    success: function(response) {
+                                                        // Hide spinner and re-enable button
+                                                        $('#oh-cleanup-spinner').removeClass('is-active');
+                                                        $('#oh-run-manual-cleanup').prop('disabled', false);
+                                                        
+                                                        // Show result message
+                                                        if (response.success) {
+                                                            $('#oh-cleanup-message')
+                                                                .html('<p><strong>' + response.data.message + '</strong></p>')
+                                                                .removeClass('notice-error')
+                                                                .addClass('notice-success')
+                                                                .show();
+                                                                
+                                                            // Refresh stats after 2 seconds
+                                                            setTimeout(function() {
+                                                                window.location.reload();
+                                                            }, 2000);
+                                                        } else {
+                                                            $('#oh-cleanup-message')
+                                                                .html('<p><strong>' + response.data.message + '</strong></p>')
+                                                                .removeClass('notice-success')
+                                                                .addClass('notice-error')
+                                                                .show();
+                                                        }
+                                                    },
+                                                    error: function() {
+                                                        // Handle error
+                                                        $('#oh-cleanup-spinner').removeClass('is-active');
+                                                        $('#oh-run-manual-cleanup').prop('disabled', false);
+                                                        $('#oh-cleanup-message')
+                                                            .html('<p><strong><?php esc_html_e("An error occurred. Please try again.", "delete-old-outofstock-products"); ?></strong></p>')
+                                                            .removeClass('notice-success')
+                                                            .addClass('notice-error')
+                                                            .show();
+                                                    }
+                                                });
+                                            }
+                                        });
+                                    });
+                                    </script>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <?php
+                    }
+                }
