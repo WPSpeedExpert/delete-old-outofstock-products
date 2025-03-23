@@ -210,6 +210,7 @@ class OH_Admin_UI {
             'too_many_count' => $too_many_count !== false ? intval($too_many_count) : 0,
             'time_elapsed' => $is_running ? human_time_diff(intval($is_running), time()) : '',
             'has_log' => $this->logger->log_exists(),
+            'timestamp' => time() // Add timestamp to prevent caching
         );
         
         wp_send_json_success( $response );
@@ -225,7 +226,8 @@ class OH_Admin_UI {
         $log_content = $this->logger->get_log_content();
         
         wp_send_json_success(array(
-            'log_content' => $log_content
+            'log_content' => $log_content ? $log_content : __('No log entries found.', 'delete-old-outofstock-products'),
+            'timestamp' => time() // Add timestamp to prevent caching
         ));
     }
     
