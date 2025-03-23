@@ -39,12 +39,12 @@
     let checkInterval = null;
     let isPolling = false;
     let viewingLog = false;
-    let debug = false; // Set to false for production
+    let debug = true; // Enable for debugging
     let isProcessRunning = false; // Track if a process is currently running
     
     // 1.2 Document ready handler
     $(document).ready(function() {
-        if (debug) console.log('DOOP Admin JS initialized');
+        console.log('DOOP Admin JS initialized - Debug enabled');
         
         // Initialize log viewer
         initLogViewer();
@@ -53,7 +53,31 @@
         bindRefreshStatus();
         
         // 1.3 Initial process check - Check if a process is already running when page loads
-        checkIfProcessRunning();
+        // First check based on PHP data (fastest)
+        if (typeof ohDoopData !== 'undefined') {
+            console.log('ohDoopData available, checking isRunning flag:', ohDoopData.isRunning);
+            
+            if (ohDoopData.isRunning) {
+                console.log('Process running flag detected in ohDoopData');
+                isProcessRunning = true;
+                showRunningProcessMessage();
+            } else {
+                // Double-check via AJAX to be sure (in case PHP data is stale)
+                checkIfProcessRunningViaAjax();
+            }
+        } else {
+            console.log('ohDoopData not available, checking via AJAX only');
+            checkIfProcessRunningViaAjax();
+        }
+        
+        // Also check URL parameters which might indicate a running process
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('manual') === '1' || urlParams.get('deletion_status') === 'running') {
+            console.log('Status monitoring started based on URL parameters');
+            isProcessRunning = true;
+            showRunningProcessMessage();
+            initStatusMonitoring();
+        }
         
         // 2. FORM SUBMISSION HANDLING
         // ====================================
@@ -65,27 +89,14 @@
                 e.preventDefault();
                 
                 // Show a message to the user
-                let statusEl = $('#oh-process-status');
-                if (statusEl.length === 0) {
-                    $('.wrap').prepend('<div id="oh-process-status"></div>');
-                    statusEl = $('#oh-process-status');
-                }
-                
-                statusEl.removeClass('success').addClass('error').show().html(
-                    '<p><strong>A deletion process is already running!</strong></p>' +
-                    '<p>Please wait for the current process to complete before starting a new one.</p>' +
-                    '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Status</a></p>'
-                );
-                
-                // Bind the refresh button
-                bindRefreshStatus();
+                showRunningProcessMessage("A deletion process is already running!");
                 
                 return false;
             }
             
             e.preventDefault(); // Prevent default form submission
             
-            if (debug) console.log('Form submission intercepted');
+            console.log('Form submission intercepted');
             
             // Show processing state immediately
             $('.oh-status-indicator').addClass('running').html('<span class="spinner is-active" style="float:none; margin:0;"></span>');
@@ -113,7 +124,7 @@
                 processData: false,
                 contentType: false,
                 success: function(response) {
-                    if (debug) console.log('Manual run form submitted successfully');
+                    console.log('Manual run form submitted successfully');
                     
                     // Mark process as running
                     isProcessRunning = true;
@@ -130,7 +141,7 @@
                     checkInterval = setInterval(checkStatus, 3000);
                 },
                 error: function(xhr, status, error) {
-                    if (debug) console.error('Form submission error:', error);
+                    console.error('Form submission error:', error);
                     statusEl.addClass('error').html(
                         '<p><strong>Error starting cleanup</strong></p>' +
                         '<p>There was a problem starting the cleanup process. Please try again.</p>' +
@@ -140,29 +151,48 @@
                     bindRefreshStatus();
                     
                     // Double-check the process status to be sure
-                    checkIfProcessRunning();
+                    checkIfProcessRunningViaAjax();
                 }
             });
         });
-        
-        // Check URL parameters for status indications
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('manual') === '1' || urlParams.get('deletion_status') === 'running') {
-            if (debug) console.log('Status monitoring started based on URL parameters');
-            initStatusMonitoring();
-        }
-        
-        // Also check the data attribute from PHP
-        if (typeof ohDoopData !== 'undefined' && 
-            (ohDoopData.isRunning || ohDoopData.deletionStatus === 'running')) {
-            if (debug) console.log('Status monitoring started based on ohDoopData');
-            initStatusMonitoring();
-        }
     });
     
-    // Check if a process is already running
-    function checkIfProcessRunning() {
-        if (debug) console.log('Checking if a process is already running');
+    // Show a message about running process
+    function showRunningProcessMessage(customMessage) {
+        console.log('Showing running process message');
+        
+        // Create status container if not present
+        let statusEl = $('#oh-process-status');
+        if (statusEl.length === 0) {
+            $('.wrap').prepend('<div id="oh-process-status"></div>');
+            statusEl = $('#oh-process-status');
+        }
+        
+        // Show prominent message
+        statusEl.show().css({
+            'border-left': '4px solid #dc3232',
+            'background-color': '#fff8f8',
+            'padding': '10px 12px',
+            'margin-bottom': '20px'
+        }).html(
+            '<p><strong>' + (customMessage || 'A deletion process is currently running!') + '</strong></p>' +
+            '<p>Please wait for the current process to complete before starting a new one.</p>' +
+            '<p><a href="javascript:void(0);" class="oh-refresh-status button">Check Current Status</a></p>'
+        );
+        
+        // Disable the run button
+        $('button[name="run_now"]').prop('disabled', true);
+        
+        // Bind the refresh button
+        bindRefreshStatus();
+        
+        // Start monitoring to get updates
+        initStatusMonitoring();
+    }
+    
+    // Check if a process is already running via AJAX
+    function checkIfProcessRunningViaAjax() {
+        console.log('Checking if a process is running via AJAX');
         
         $.ajax({
             url: ajaxurl,
@@ -174,44 +204,38 @@
                 _: Date.now()
             },
             success: function(response) {
+                console.log('Process check response:', response);
+                
                 if (response && response.success) {
+                    // Check for running status
                     if (response.data.is_running) {
-                        if (debug) console.log('Process is already running');
+                        console.log('Process is running according to AJAX check');
                         
                         // Mark as running
                         isProcessRunning = true;
                         
-                        // Update the UI to show the running process
-                        let statusEl = $('#oh-process-status');
-                        if (statusEl.length === 0) {
-                            $('.wrap').prepend('<div id="oh-process-status"></div>');
-                            statusEl = $('#oh-process-status');
-                        }
+                        // Show message
+                        showRunningProcessMessage();
+                    } else if (response.data.debug && response.data.debug.is_running_raw) {
+                        // Double-check the raw flag in case the processed flag is incorrect
+                        console.log('Process is running according to raw data');
                         
-                        statusEl.removeClass('success error').show().html(
-                            '<p><strong>A deletion process is already running!</strong>' + 
-                            (response.data.time_elapsed ? ' (' + response.data.time_elapsed + ' ago)' : '') + '</p>' +
-                            '<p>Please wait for the current process to complete before starting a new one.</p>' +
-                            '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Status</a></p>'
-                        );
+                        // Mark as running
+                        isProcessRunning = true;
                         
-                        // Bind the refresh button
-                        bindRefreshStatus();
-                        
-                        // Disable the run button
-                        $('button[name="run_now"]').prop('disabled', true);
-                        
-                        // Start monitoring
-                        initStatusMonitoring();
+                        // Show message
+                        showRunningProcessMessage();
                     } else {
+                        console.log('No running process detected');
                         isProcessRunning = false;
                         $('button[name="run_now"]').prop('disabled', false);
                     }
+                } else {
+                    console.error('Invalid AJAX response for process check');
                 }
             },
-            error: function() {
-                if (debug) console.error('Error checking if process is running');
-                // Don't update isProcessRunning flag on error
+            error: function(xhr, status, error) {
+                console.error('Error checking if process is running:', error);
             }
         });
     }
@@ -221,7 +245,7 @@
         $('.oh-refresh-status').off('click').on('click', function(e) {
             e.preventDefault();
             
-            if (debug) console.log('Refresh status clicked');
+            console.log('Refresh status clicked');
             
             // Create a temporary message
             let statusEl = $('#oh-process-status');
@@ -244,7 +268,7 @@
     
     // 3.1 Initialize status monitoring
     function initStatusMonitoring() {
-        if (debug) console.log('Initializing status monitoring');
+        console.log('Initializing status monitoring');
         
         // Create status container if not present
         let statusEl = $('#oh-process-status');
@@ -253,15 +277,17 @@
             statusEl = $('#oh-process-status');
         }
         
-        // Show initial status
-        statusEl.removeClass('success error').show().html(
-            '<p><strong>Process is running...</strong></p>' +
-            '<p>You can navigate away from this page. The process will continue in the background.</p>' +
-            '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Status</a></p>'
-        );
-        
-        // Bind the refresh button
-        bindRefreshStatus();
+        // Show initial status if not already showing something
+        if (!statusEl.is(':visible')) {
+            statusEl.removeClass('success error').show().html(
+                '<p><strong>Process is running...</strong></p>' +
+                '<p>You can navigate away from this page. The process will continue in the background.</p>' +
+                '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Status</a></p>'
+            );
+            
+            // Bind the refresh button
+            bindRefreshStatus();
+        }
         
         // Add spinner to button
         $('.oh-status-indicator').addClass('running').html('<span class="spinner is-active" style="float:none; margin:0;"></span>');
@@ -282,11 +308,11 @@
     function checkStatus() {
         // Prevent multiple simultaneous requests
         if (isPolling) {
-            if (debug) console.log('Already polling, skipping this check');
+            console.log('Already polling, skipping this check');
             return;
         }
         
-        if (debug) console.log('Checking deletion status via AJAX');
+        console.log('Checking deletion status via AJAX');
         isPolling = true;
         
         $.ajax({
@@ -299,7 +325,7 @@
                 _: Date.now() // Prevent caching
             },
             success: function(response) {
-                if (debug) console.log('AJAX response:', response);
+                console.log('AJAX response:', response);
                 
                 if (response && response.success) {
                     // Update process running flag based on response
@@ -307,7 +333,7 @@
                     
                     updateUI(response.data);
                 } else {
-                    if (debug) console.error('AJAX response unsuccessful:', response);
+                    console.error('AJAX response unsuccessful:', response);
                     
                     // Show error in UI
                     let statusEl = $('#oh-process-status');
@@ -322,7 +348,7 @@
                 }
             },
             error: function(xhr, status, error) {
-                if (debug) console.error('AJAX error:', status, error);
+                console.error('AJAX error:', status, error);
                 
                 // Show error in UI
                 let statusEl = $('#oh-process-status');
@@ -344,13 +370,13 @@
     
     // 3.3 Update UI based on status response
     function updateUI(data) {
-        if (debug) console.log('Updating UI with data:', data);
+        console.log('Updating UI with data:', data);
         
         let statusEl = $('#oh-process-status');
         
         // Process is running
         if (data.is_running) {
-            if (debug) console.log('Process is running');
+            console.log('Process is running');
             
             // Update global flag
             isProcessRunning = true;
@@ -379,7 +405,7 @@
         }
         // Process completed
         else if (data.is_completed) {
-            if (debug) console.log('Process completed, deleted:', data.deleted_count);
+            console.log('Process completed, deleted:', data.deleted_count);
             
             // Update global flag
             isProcessRunning = false;
@@ -410,7 +436,7 @@
             
             // Reload page after a short delay to show updated stats
             setTimeout(function() {
-                if (debug) console.log('Reloading page with completion parameters');
+                console.log('Reloading page with completion parameters');
                 window.location.href = window.location.href.split('?')[0] + 
                     '?page=doop-settings&deletion_status=completed&deleted=' + 
                     data.deleted_count + '&t=' + Date.now();
@@ -418,7 +444,7 @@
         }
         // Too many products
         else if (data.too_many) {
-            if (debug) console.log('Too many products:', data.too_many_count);
+            console.log('Too many products:', data.too_many_count);
             
             // Update global flag
             isProcessRunning = false;
@@ -441,7 +467,7 @@
             
             // Reload page after a short delay
             setTimeout(function() {
-                if (debug) console.log('Reloading page with too_many parameters');
+                console.log('Reloading page with too_many parameters');
                 window.location.href = window.location.href.split('?')[0] + 
                     '?page=doop-settings&deletion_status=too_many&count=' + 
                     data.too_many_count + '&t=' + Date.now();
@@ -449,7 +475,7 @@
         }
         // No process running
         else {
-            if (debug) console.log('No process running');
+            console.log('No process running');
             
             // Update global flag
             isProcessRunning = false;
@@ -515,7 +541,7 @@
                 _: Date.now() // Prevent caching
             },
             success: function(response) {
-                if (debug) console.log('Log content response:', response);
+                console.log('Log content response:', response);
                 
                 if (response && response.success && response.data.log_content) {
                     logEl.html(response.data.log_content);
@@ -527,7 +553,7 @@
                 logEl.scrollTop(logEl[0].scrollHeight);
             },
             error: function(xhr, status, error) {
-                if (debug) console.error('Error loading log:', status, error);
+                console.error('Error loading log:', status, error);
                 logEl.html('Error loading log content');
             }
         });
