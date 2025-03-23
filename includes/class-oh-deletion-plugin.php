@@ -5,26 +5,6 @@
  *
  * @package Delete_Old_Outofstock_Products
  * @version 2.3.0
- * @since 2.2.3
- */
-
-/**
- * TABLE OF CONTENTS:
- *
- * 1. SETUP & INITIALIZATION
- *    1.1 Class properties
- *    1.2 Singleton pattern
- *    1.3 Constructor
- *
- * 2. PLUGIN LIFECYCLE
- *    2.1 Activation
- *    2.2 Deactivation
- *    2.3 Update cron time
- *
- * 3. PRODUCT DELETION
- *    3.1 Run scheduled deletion
- *    3.2 Handle manual process
- *    3.3 Background processing
  */
 
 // Exit if accessed directly.
@@ -37,53 +17,12 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class OH_Deletion_Plugin {
     
-    // 1. SETUP & INITIALIZATION
-    // =================================
-
-    /**
-     * 1.1 Class properties
-     */
-    
-    /**
-     * Plugin instance
-     *
-     * @var OH_Deletion_Plugin
-     */
     private static $instance = null;
-
-    /**
-     * Logger instance
-     *
-     * @var OH_Logger
-     */
     private $logger;
-    
-    /**
-     * Deletion processor instance
-     *
-     * @var OH_Deletion_Processor
-     */
     private $processor;
-    
-    /**
-     * Admin UI instance
-     *
-     * @var OH_Admin_UI
-     */
     private $admin_ui;
-    
-    /**
-     * Last cron execution time
-     *
-     * @var int
-     */
     private $last_cron_time;
 
-    /**
-     * 1.2 Singleton pattern - Get single instance of the plugin
-     *
-     * @return OH_Deletion_Plugin
-     */
     public static function get_instance() {
         if ( is_null( self::$instance ) ) {
             self::$instance = new self();
@@ -91,9 +30,6 @@ class OH_Deletion_Plugin {
         return self::$instance;
     }
 
-    /**
-     * 1.3 Constructor
-     */
     private function __construct() {
         $this->logger = OH_Logger::get_instance();
         $this->processor = new OH_Deletion_Processor();
@@ -113,12 +49,6 @@ class OH_Deletion_Plugin {
         add_action( DOOP_CRON_HOOK, array( $this, 'update_last_cron_time' ) );
     }
     
-    // 2. PLUGIN LIFECYCLE
-    // =================================
-    
-    /**
-     * 2.1 Activate the plugin
-     */
     public function activate() {
         // Add default options if they don't exist
         if ( ! get_option( DOOP_OPTIONS_KEY ) ) {
@@ -146,14 +76,10 @@ class OH_Deletion_Plugin {
         delete_option( DOOP_PROCESS_OPTION );
         delete_option( DOOP_RESULT_OPTION );
         delete_option( 'oh_doop_too_many_products' );
-        delete_option( 'oh_doop_manual_process' );
         
         $this->logger->log('Plugin activated');
     }
 
-    /**
-     * 2.2 Deactivate the plugin
-     */
     public function deactivate() {
         // Clear the cron event
         $timestamp = wp_next_scheduled( DOOP_CRON_HOOK );
@@ -165,29 +91,17 @@ class OH_Deletion_Plugin {
         delete_option( DOOP_PROCESS_OPTION );
         delete_option( DOOP_RESULT_OPTION );
         delete_option( 'oh_doop_too_many_products' );
-        delete_option( 'oh_doop_manual_process' );
         // Don't delete oh_doop_last_cron_time - keep this record even when deactivated
         
         $this->logger->log('Plugin deactivated');
     }
     
-    /**
-     * 2.3 Update the last cron execution time
-     */
     public function update_last_cron_time() {
         $current_time = time();
         update_option( 'oh_doop_last_cron_time', $current_time );
         $this->last_cron_time = $current_time;
     }
     
-    // 3. PRODUCT DELETION
-    // =================================
-    
-    /**
-     * 3.1 Run the scheduled deletion process
-     * 
-     * @return int Number of products deleted
-     */
     public function run_scheduled_deletion() {
         $this->logger->log("Starting scheduled deletion process");
         update_option( DOOP_PROCESS_OPTION, time() );
@@ -201,40 +115,22 @@ class OH_Deletion_Plugin {
         return $deleted;
     }
     
-    /**
-     * 3.2 Handle manual run of the product deletion process
-     */
     public function handle_manual_run() {
-        // Check nonce for security
-        if ( 
-            ! isset( $_POST['oh_nonce'] ) || 
-            ! wp_verify_nonce( $_POST['oh_nonce'], 'oh_run_product_deletion_nonce' ) || 
-            ! current_user_can( 'manage_options' )
-        ) {
-            wp_die( esc_html__( 'Security check failed. Please try again.', 'delete-old-outofstock-products' ) );
+        // Basic emergency handler
+        if (!current_user_can('manage_options')) {
+            wp_die('Not authorized.');
         }
         
-        // Check if process is already running
-        $is_running = get_option( DOOP_PROCESS_OPTION, false );
-        if ($is_running && $is_running !== 0) {
-            $this->logger->log("Manual deletion process requested but another process is already running.");
-            wp_redirect( admin_url( 'admin.php?page=doop-settings' ) );
-            exit;
+        try {
+            $this->logger->log("Manual deletion process initiated");
+            $deleted = $this->processor->delete_old_out_of_stock_products();
+            $this->logger->log("Manual deletion completed. Deleted $deleted products.");
+            update_option(DOOP_RESULT_OPTION, $deleted);
+        } catch (Exception $e) {
+            $this->logger->log("Error: " . $e->getMessage());
         }
         
-        // Log the manual run
-        $current_user = wp_get_current_user();
-        $this->logger->log("Manual deletion process initiated by user: " . $current_user->user_login);
-        
-        // Run the deletion process directly
-        $this->logger->log("Running deletion process directly");
-        $deleted = $this->processor->delete_old_out_of_stock_products();
-        $this->logger->log("Deletion process completed. Deleted $deleted products.");
-        
-        // Store the result
-        update_option( DOOP_RESULT_OPTION, $deleted );
-        
-        // Simple redirect back to the settings page
-        wp_redirect( admin_url( 'admin.php?page=doop-settings' ) );
+        wp_redirect(admin_url('admin.php?page=doop-settings'));
         exit;
     }
+}
