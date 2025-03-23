@@ -218,105 +218,23 @@ class OH_Deletion_Plugin {
         $is_running = get_option( DOOP_PROCESS_OPTION, false );
         if ($is_running && $is_running !== 0) {
             $this->logger->log("Manual deletion process requested but another process is already running.");
-            wp_redirect(add_query_arg(
-                array(
-                    'page' => 'doop-settings',
-                    'deletion_status' => 'already_running', 
-                    't' => time()
-                ),
-                admin_url('admin.php')
-            ));
+            wp_redirect( admin_url( 'admin.php?page=doop-settings' ) );
             exit;
         }
-        
-        // Count eligible products
-        $options = get_option( DOOP_OPTIONS_KEY, array(
-            'product_age' => 18,
-            'delete_images' => 'yes',
-        ));
-        
-        $product_age = isset( $options['product_age'] ) ? absint( $options['product_age'] ) : 18;
-        $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
-        
-        $eligible_query = new WP_Query( array(
-            'post_type'      => 'product',
-            'post_status'    => 'publish',
-            'posts_per_page' => -1,
-            'fields'         => 'ids',
-            'date_query'     => array(
-                array(
-                    'before' => $date_threshold,
-                ),
-            ),
-            'meta_query'     => array(
-                array(
-                    'key'   => '_stock_status',
-                    'value' => 'outofstock',
-                ),
-            ),
-        ) );
-        
-        $eligible_count = $eligible_query->found_posts;
-        $this->logger->log("Products eligible for deletion: " . $eligible_count);
-        
-        // If there are too many products, log and exit
-        if ($eligible_count > 200) {
-            $this->logger->log("Too many products ($eligible_count) eligible for deletion. Aborting manual run.");
-            update_option( 'oh_doop_too_many_products', $eligible_count );
-            
-            wp_redirect(add_query_arg(
-                array(
-                    'page' => 'doop-settings',
-                    'deletion_status' => 'too_many',
-                    'count' => $eligible_count,
-                    't' => time()
-                ),
-                admin_url('admin.php')
-            ));
-            exit;
-        }
-        
-        // Set a flag that the process is starting
-        update_option( DOOP_PROCESS_OPTION, time() );
-        delete_option( DOOP_RESULT_OPTION ); // Clear previous results
-        
-        // Set a flag to prevent auto-refresh
-        update_option('oh_doop_manual_process', true);
         
         // Log the manual run
         $current_user = wp_get_current_user();
         $this->logger->log("Manual deletion process initiated by user: " . $current_user->user_login);
         
-        // For small batches or testing, run directly for immediate feedback
-        if ($eligible_count < 10) {
-            $this->logger->log("Running deletion process directly (small number of products)");
-            
-            // Run the process directly
-            $deleted = $this->processor->delete_old_out_of_stock_products();
-            
-            // Update results
-            update_option( DOOP_RESULT_OPTION, $deleted );
-            update_option( DOOP_PROCESS_OPTION, 0 ); // Mark as complete
-            
-            $this->logger->log("Manual deletion process completed directly. Deleted $deleted products.");
-        } else {
-            // For larger batches, schedule for background processing
-            $this->logger->log("Scheduling deletion process for background processing");
-            wp_schedule_single_event(time(), DOOP_CRON_HOOK);
-        }
+        // Run the deletion process directly
+        $this->logger->log("Running deletion process directly");
+        $deleted = $this->processor->delete_old_out_of_stock_products();
+        $this->logger->log("Deletion process completed. Deleted $deleted products.");
         
-        // Return JavaScript to redirect properly with status monitoring
-        echo '<html><head><script>
-        window.location.href = "' . esc_url(add_query_arg(
-            array(
-                'page' => 'doop-settings',
-                'deletion_status' => 'running',
-                'manual' => '1',
-                't' => time()
-            ),
-            admin_url('admin.php')
-        )) . '";
-        </script></head></html>';
+        // Store the result
+        update_option( DOOP_RESULT_OPTION, $deleted );
+        
+        // Simple redirect back to the settings page
+        wp_redirect( admin_url( 'admin.php?page=doop-settings' ) );
         exit;
     }
-}
