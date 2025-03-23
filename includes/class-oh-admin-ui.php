@@ -202,15 +202,27 @@ class OH_Admin_UI {
         $last_run_count = get_option( DOOP_RESULT_OPTION, false );
         $too_many_count = get_option( 'oh_doop_too_many_products', false );
         
+        // Make sure we're interpreting the values correctly
+        $is_running_value = ($is_running && $is_running !== 0);
+        $is_completed_value = ($is_running === 0 && $last_run_count !== false);
+        $too_many_value = ($too_many_count !== false && $too_many_count > 0);
+        
         $response = array(
-            'is_running' => ($is_running && $is_running !== 0),
-            'is_completed' => ($is_running === 0 && $last_run_count !== false),
-            'too_many' => ($too_many_count !== false),
+            'is_running' => $is_running_value,
+            'is_completed' => $is_completed_value, 
+            'too_many' => $too_many_value,
             'deleted_count' => $last_run_count !== false ? intval($last_run_count) : 0,
             'too_many_count' => $too_many_count !== false ? intval($too_many_count) : 0,
-            'time_elapsed' => $is_running ? human_time_diff(intval($is_running), time()) : '',
+            'time_elapsed' => $is_running ? human_time_diff(intval($is_running), current_time('timestamp')) : '',
             'has_log' => $this->logger->log_exists(),
-            'timestamp' => time() // Add timestamp to prevent caching
+            // Add debug information
+            'debug' => array(
+                'is_running_raw' => $is_running,
+                'last_run_count_raw' => $last_run_count,
+                'too_many_count_raw' => $too_many_count,
+                'current_time' => current_time('timestamp'),
+                'timestamp' => time()
+            )
         );
         
         wp_send_json_success( $response );
@@ -226,8 +238,8 @@ class OH_Admin_UI {
         $log_content = $this->logger->get_log_content();
         
         wp_send_json_success(array(
-            'log_content' => $log_content ? $log_content : __('No log entries found.', 'delete-old-outofstock-products'),
-            'timestamp' => time() // Add timestamp to prevent caching
+            'log_content' => $log_content ?: __('No log entries found.', 'delete-old-outofstock-products'),
+            'timestamp' => time()
         ));
     }
     
@@ -326,7 +338,7 @@ class OH_Admin_UI {
             'oh-admin-scripts',
             DOOP_PLUGIN_URL . 'assets/js/admin.js',
             array( 'jquery' ),
-            DOOP_VERSION,
+            DOOP_VERSION . '.' . time(), // Add timestamp to force cache refresh
             true
         );
         
@@ -349,12 +361,11 @@ class OH_Admin_UI {
                     'viewLog' => __( 'View Log', 'delete-old-outofstock-products' ),
                     'hideLog' => __( 'Hide Log', 'delete-old-outofstock-products' ),
                     'navigateAway' => __( 'You can navigate away from this page. The process will continue in the background.', 'delete-old-outofstock-products' ),
-                    'error' => __( 'Error checking status', 'delete-old-outofstock-products' ),
-                    'tryAgain' => __( 'There was a problem communicating with the server. Will try again shortly.', 'delete-old-outofstock-products' ),
                 ),
-                'isRunning' => get_option( DOOP_PROCESS_OPTION, false ) && get_option( DOOP_PROCESS_OPTION, false ) !== 0,
+                'isRunning' => (bool) get_option( DOOP_PROCESS_OPTION, false ) && get_option( DOOP_PROCESS_OPTION, false ) !== 0,
                 'deletionStatus' => isset( $_GET['deletion_status'] ) ? sanitize_text_field( $_GET['deletion_status'] ) : '',
-                'version' => DOOP_VERSION
+                'manualRun' => isset( $_GET['manual'] ) ? '1' : '0',
+                'timestamp' => time()
             )
         );
     }
