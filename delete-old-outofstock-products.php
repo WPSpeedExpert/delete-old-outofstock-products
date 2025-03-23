@@ -20,7 +20,7 @@
  * Delete Old Out-of-Stock Products plugin.
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.3.0
+ * @version 2.3.8
  */
 
 /**
@@ -32,14 +32,14 @@
  *    1.3 Require files
  *    1.4 Initialize plugin
  * 
- * 2. PLUGIN CLASS
+ * 2. PLUGIN CLASS (Implemented in includes/class-oh-deletion-plugin.php)
  *    2.1 Constructor
  *    2.2 Activation/Deactivation hooks
- *    2.3 Load text domain
+ *    2.3 Update cron time
  * 
- * 3. CORE FUNCTIONALITY
- *    3.1 Main clean-up process
- *    3.2 Background processing
+ * 3. CORE FUNCTIONALITY (Implemented in includes/class-oh-deletion-processor.php)
+ *    3.1 Main clean-up process - delete_old_out_of_stock_products()
+ *    3.2 Background processing - handle_manual_run() in class-oh-deletion-plugin.php
  */
 
 // 1. SETUP & INITIALIZATION
@@ -51,7 +51,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // 1.2 Define constants
-define( 'DOOP_VERSION', '2.3.0' );
+define( 'DOOP_VERSION', '2.3.8' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -68,12 +68,24 @@ require_once DOOP_PLUGIN_DIR . 'includes/class-oh-deletion-plugin.php';
 
 // 1.4 Initialize plugin
 function oh_init_plugin() {
+    // This instantiates the OH_Deletion_Plugin class (implements Section 2)
     return OH_Deletion_Plugin::get_instance();
 }
 add_action( 'plugins_loaded', 'oh_init_plugin' );
 
 // This is needed for backward compatibility
 function oh_handle_manual_run() {
+    // This calls the handle_manual_run method (implements Section 3.2)
     $instance = OH_Deletion_Plugin::get_instance();
     $instance->handle_manual_run();
 }
+
+// Note: The following sections are implemented in separate class files:
+// - Section 2 (PLUGIN CLASS) is implemented in includes/class-oh-deletion-plugin.php
+//   - 2.1 Constructor - __construct() method
+//   - 2.2 Activation/Deactivation hooks - activate() and deactivate() methods
+//   - 2.3 Update cron time - update_last_cron_time() method
+//
+// - Section 3 (CORE FUNCTIONALITY) is implemented in includes/class-oh-deletion-processor.php
+//   - 3.1 Main clean-up process - delete_old_out_of_stock_products() method
+//   - 3.2 Background processing - handle_manual_run() method in class-oh-deletion-plugin.php
