@@ -222,7 +222,8 @@ class OH_Admin_UI {
                 'too_many_count_raw' => $too_many_count,
                 'current_time' => current_time('timestamp'),
                 'timestamp' => time()
-            )
+            ),
+            'server_time' => current_time('mysql'),
         );
         
         wp_send_json_success( $response );
@@ -342,6 +343,10 @@ class OH_Admin_UI {
             true
         );
         
+        // Check if process is running to pass to JavaScript
+        $is_running = get_option( DOOP_PROCESS_OPTION, false );
+        $is_running_value = ($is_running && $is_running !== 0);
+        
         wp_localize_script(
             'oh-admin-scripts',
             'ohDoopData',
@@ -361,10 +366,16 @@ class OH_Admin_UI {
                     'viewLog' => __( 'View Log', 'delete-old-outofstock-products' ),
                     'hideLog' => __( 'Hide Log', 'delete-old-outofstock-products' ),
                     'navigateAway' => __( 'You can navigate away from this page. The process will continue in the background.', 'delete-old-outofstock-products' ),
+                    'alreadyRunning' => __( 'A deletion process is already running!', 'delete-old-outofstock-products' ),
+                    'waitForCompletion' => __( 'Please wait for the current process to complete before starting a new one.', 'delete-old-outofstock-products' ),
                 ),
-                'isRunning' => (bool) get_option( DOOP_PROCESS_OPTION, false ) && get_option( DOOP_PROCESS_OPTION, false ) !== 0,
+                'isRunning' => $is_running_value,
                 'deletionStatus' => isset( $_GET['deletion_status'] ) ? sanitize_text_field( $_GET['deletion_status'] ) : '',
                 'manualRun' => isset( $_GET['manual'] ) ? '1' : '0',
+                'processTime' => $is_running ? human_time_diff(intval($is_running), current_time('timestamp')) : '',
+                'processStarted' => $is_running ? intval($is_running) : 0,
+                'currentTime' => current_time('timestamp'),
+                'debug' => WP_DEBUG,
                 'timestamp' => time()
             )
         );
