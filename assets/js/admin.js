@@ -5,7 +5,7 @@
  * Handles AJAX status monitoring and UI updates for the product deletion process.
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.3.9
+ * @version 2.3.10
  */
 
 /**
@@ -38,7 +38,7 @@
     let checkInterval = null;
     let isPolling = false;
     let viewingLog = false;
-    let debug = true; // Enable for debugging
+    let debug = false; // Set to false for production
     
     // 1.2 Document ready handler
     $(document).ready(function() {
@@ -46,6 +46,9 @@
         
         // Initialize log viewer
         initLogViewer();
+        
+        // Bind refresh status button
+        bindRefreshStatus();
         
         // 2. FORM SUBMISSION HANDLING
         // ====================================
@@ -99,9 +102,11 @@
                     if (debug) console.error('Form submission error:', error);
                     statusEl.addClass('error').html(
                         '<p><strong>Error starting cleanup</strong></p>' +
-                        '<p>There was a problem starting the cleanup process. Please try again.</p>'
+                        '<p>There was a problem starting the cleanup process. Please try again.</p>' +
+                        '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Status</a></p>'
                     );
                     $('.oh-status-indicator').removeClass('running').html('');
+                    bindRefreshStatus();
                 }
             });
         });
@@ -121,6 +126,29 @@
         }
     });
     
+    // Bind refresh status button
+    function bindRefreshStatus() {
+        $('.oh-refresh-status').off('click').on('click', function(e) {
+            e.preventDefault();
+            
+            if (debug) console.log('Refresh status clicked');
+            
+            // Create a temporary message
+            let statusEl = $('#oh-process-status');
+            if (statusEl.length === 0) {
+                $('.wrap').prepend('<div id="oh-process-status"></div>');
+                statusEl = $('#oh-process-status');
+            }
+            
+            statusEl.removeClass('success error').html(
+                '<p>Checking status... <span class="spinner is-active" style="float:none; margin:0;"></span></p>'
+            );
+            
+            // Do an immediate status check
+            checkStatus();
+        });
+    }
+    
     // 3. STATUS MONITORING
     // ====================================
     
@@ -138,8 +166,12 @@
         // Show initial status
         statusEl.removeClass('success error').show().html(
             '<p><strong>Process is running...</strong></p>' +
-            '<p>You can navigate away from this page. The process will continue in the background.</p>'
+            '<p>You can navigate away from this page. The process will continue in the background.</p>' +
+            '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Status</a></p>'
         );
+        
+        // Bind the refresh button
+        bindRefreshStatus();
         
         // Add spinner to button
         $('.oh-status-indicator').addClass('running').html('<span class="spinner is-active" style="float:none; margin:0;"></span>');
@@ -188,8 +220,12 @@
                     let statusEl = $('#oh-process-status');
                     statusEl.addClass('error').html(
                         '<p><strong>Error checking status</strong></p>' +
-                        '<p>There was an issue checking the deletion status. Will try again shortly.</p>'
+                        '<p>There was an issue checking the deletion status. Please try again.</p>' +
+                        '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Status</a></p>'
                     );
+                    
+                    // Bind the refresh button
+                    bindRefreshStatus();
                 }
             },
             error: function(xhr, status, error) {
@@ -199,8 +235,12 @@
                 let statusEl = $('#oh-process-status');
                 statusEl.addClass('error').html(
                     '<p><strong>Error communicating with server</strong></p>' +
-                    '<p>There was a problem checking the deletion status: ' + status + '</p>'
+                    '<p>There was a problem checking the deletion status: ' + status + '</p>' +
+                    '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Status</a></p>'
                 );
+                
+                // Bind the refresh button
+                bindRefreshStatus();
             },
             complete: function() {
                 // Always mark as not polling so future checks can run
@@ -222,8 +262,12 @@
             statusEl.removeClass('success error').show().html(
                 '<p><strong>Process is running...</strong>' + 
                 (data.time_elapsed ? ' (' + data.time_elapsed + ' ago)' : '') + '</p>' +
-                '<p>You can navigate away from this page. The process will continue in the background.</p>'
+                '<p>You can navigate away from this page. The process will continue in the background.</p>' +
+                '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Status</a></p>'
             );
+            
+            // Bind the refresh button
+            bindRefreshStatus();
             
             // Add log button if available
             if (data.has_log) {
@@ -243,8 +287,12 @@
             
             statusEl.removeClass('error').addClass('success').show().html(
                 '<p><strong>Process completed!</strong></p>' +
-                '<p>' + data.deleted_count + ' products were deleted.</p>'
+                '<p>' + data.deleted_count + ' products were deleted.</p>' +
+                '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Status</a></p>'
             );
+            
+            // Bind the refresh button
+            bindRefreshStatus();
             
             // Add log button if available
             if (data.has_log) {
@@ -275,8 +323,12 @@
             
             statusEl.removeClass('success').addClass('error').show().html(
                 '<p><strong>Too many products eligible for deletion</strong></p>' +
-                '<p>' + data.too_many_count + ' products eligible for deletion, which exceeds the safe limit for manual deletion (200).</p>'
+                '<p>' + data.too_many_count + ' products eligible for deletion, which exceeds the safe limit for manual deletion (200).</p>' +
+                '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Status</a></p>'
             );
+            
+            // Bind the refresh button
+            bindRefreshStatus();
             
             // Enable run button
             $('button[name="run_now"]').prop('disabled', false);
@@ -303,8 +355,12 @@
             // Keep the status area visible if we previously showed something
             if (statusEl.html()) {
                 statusEl.removeClass('error success').html(
-                    '<p>No deletion process is currently running.</p>'
+                    '<p>No deletion process is currently running.</p>' +
+                    '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Status</a></p>'
                 );
+                
+                // Bind the refresh button
+                bindRefreshStatus();
             }
             
             // Stop frequent checking
