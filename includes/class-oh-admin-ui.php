@@ -202,6 +202,10 @@ class OH_Admin_UI {
         $last_run_count = get_option( DOOP_RESULT_OPTION, false );
         $too_many_count = get_option( 'oh_doop_too_many_products', false );
         
+        // Get the product progress counters
+        $products_processed = get_option( 'oh_doop_products_processed', 0 );
+        $products_deleted = get_option( 'oh_doop_products_deleted', 0 );
+        
         // Make sure we're interpreting the values correctly
         $is_running_value = ($is_running && $is_running !== 0);
         $is_completed_value = ($is_running === 0 && $last_run_count !== false);
@@ -219,6 +223,11 @@ class OH_Admin_UI {
             }
         }
         
+        // When a process completes, use the stored deletion count
+        if ($is_completed_value && $last_run_count !== false) {
+            $products_deleted = intval($last_run_count);
+        }
+        
         $response = array(
             'is_running' => $is_running_value,
             'is_completed' => $is_completed_value, 
@@ -228,6 +237,8 @@ class OH_Admin_UI {
             'time_elapsed' => $time_elapsed,
             'is_stuck' => $is_stuck,
             'has_log' => $this->logger->log_exists(),
+            'products_processed' => intval($products_processed),
+            'products_deleted' => intval($products_deleted),
             // Add debug information
             'debug' => array(
                 'is_running_raw' => $is_running,
@@ -239,7 +250,6 @@ class OH_Admin_UI {
                 'timestamp' => time()
             ),
             'server_time' => current_time('mysql'),
-            'products_processed' => 0, // Will be updated in future versions
         );
         
         wp_send_json_success( $response );
