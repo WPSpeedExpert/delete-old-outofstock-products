@@ -70,6 +70,10 @@ class OH_Deletion_Processor {
                 // Update process timestamp to show we're still alive
                 update_option( DOOP_PROCESS_OPTION, time() );
                 
+                // Store the current progress count for status updates
+                update_option( 'oh_doop_products_processed', $total_processed );
+                update_option( 'oh_doop_products_deleted', $deleted );
+                
                 // Get a batch of products
                 $products = get_posts( array(
                     'post_type'      => 'product',
@@ -121,11 +125,15 @@ class OH_Deletion_Processor {
                         if ( $result ) {
                             $this->logger->log("Successfully deleted product #$product_id");
                             $deleted++;
+                            // Update progress counter
+                            update_option( 'oh_doop_products_deleted', $deleted );
                         } else {
                             $this->logger->log("Failed to delete product #$product_id");
                         }
                         
                         $total_processed++;
+                        // Update progress counter
+                        update_option( 'oh_doop_products_processed', $total_processed );
                         
                         // Add a small delay every 10 products to prevent timeouts
                         if ($total_processed % 10 === 0) {
@@ -157,6 +165,10 @@ class OH_Deletion_Processor {
         }
         
         $this->logger->log("Deletion process complete. Total deleted: $deleted");
+        
+        // Final update of the progress counters
+        update_option( 'oh_doop_products_processed', $total_processed );
+        update_option( 'oh_doop_products_deleted', $deleted );
         
         return $deleted;
     }
