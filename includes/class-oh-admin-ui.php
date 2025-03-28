@@ -86,6 +86,7 @@ class OH_Admin_UI {
         add_action( 'wp_ajax_oh_check_deletion_status', array( $this, 'ajax_check_deletion_status' ) );
         add_action( 'wp_ajax_oh_get_deletion_log', array( $this, 'ajax_get_deletion_log' ) );
     }
+}
     
     /**
      * 4.5 Product age field callback
@@ -757,4 +758,3 @@ class OH_Admin_UI {
             </p>
         </div>
         <?php
-    }
