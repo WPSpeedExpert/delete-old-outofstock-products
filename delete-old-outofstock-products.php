@@ -2,8 +2,8 @@
 /**
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
- * Description:        Automatically deletes WooCommerce products that are out of stock and older than 1.5 years, including their images.
- * Version:            2.4.2
+ * Description:        Automatically deletes WooCommerce products that are out of stock and older than 1.5 years, including their images. Returns 410 Gone for deleted product URLs.
+ * Version:            2.4.3
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
@@ -18,6 +18,9 @@
  *
  * This is the main plugin file that initializes all functionality for 
  * Delete Old Out-of-Stock Products plugin.
+ *
+ * @package Delete_Old_Outofstock_Products
+ * @version 2.4.0
  */
 
 /**
@@ -29,14 +32,15 @@
  *    1.3 Require files
  *    1.4 Initialize plugin
  * 
- * 2. PLUGIN CLASS (Implemented in includes/class-oh-deletion-plugin.php)
+ * 2. PLUGIN CLASS
  *    2.1 Constructor
  *    2.2 Activation/Deactivation hooks
- *    2.3 Update cron time
+ *    2.3 Load text domain
  * 
- * 3. CORE FUNCTIONALITY (Implemented in includes/class-oh-deletion-processor.php)
- *    3.1 Main clean-up process - delete_old_out_of_stock_products()
- *    3.2 Background processing - handle_manual_run() in class-oh-deletion-plugin.php
+ * 3. CORE FUNCTIONALITY
+ *    3.1 Main clean-up process
+ *    3.2 Background processing
+ *    3.3 410 Gone handling
  */
 
 // 1. SETUP & INITIALIZATION
@@ -47,9 +51,8 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-// 1.2 Define constants - Use plugin header version for DOOP_VERSION
-$plugin_data = get_file_data(__FILE__, array('Version' => 'Version'), 'plugin');
-define( 'DOOP_VERSION', $plugin_data['Version'] );
+// 1.2 Define constants
+define( 'DOOP_VERSION', '2.4.0' );
 define( 'DOOP_PLUGIN_FILE', __FILE__ );
 define( 'DOOP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DOOP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -63,27 +66,26 @@ require_once DOOP_PLUGIN_DIR . 'includes/class-oh-logger.php';
 require_once DOOP_PLUGIN_DIR . 'includes/class-oh-deletion-processor.php';
 require_once DOOP_PLUGIN_DIR . 'includes/class-oh-admin-ui.php';
 require_once DOOP_PLUGIN_DIR . 'includes/class-oh-deletion-plugin.php';
+require_once DOOP_PLUGIN_DIR . 'includes/class-oh-deleted-products-tracker.php';
 
 // 1.4 Initialize plugin
 function oh_init_plugin() {
-    // This instantiates the OH_Deletion_Plugin class (implements Section 2)
     return OH_Deletion_Plugin::get_instance();
 }
 add_action( 'plugins_loaded', 'oh_init_plugin' );
 
 // This is needed for backward compatibility
 function oh_handle_manual_run() {
-    // This calls the handle_manual_run method (implements Section 3.2)
     $instance = OH_Deletion_Plugin::get_instance();
     $instance->handle_manual_run();
 }
 
-// Note: The following sections are implemented in separate class files:
-// - Section 2 (PLUGIN CLASS) is implemented in includes/class-oh-deletion-plugin.php
-//   - 2.1 Constructor - __construct() method
-//   - 2.2 Activation/Deactivation hooks - activate() and deactivate() methods
-//   - 2.3 Update cron time - update_last_cron_time() method
-//
-// - Section 3 (CORE FUNCTIONALITY) is implemented in includes/class-oh-deletion-processor.php
-//   - 3.1 Main clean-up process - delete_old_out_of_stock_products() method
-//   - 3.2 Background processing - handle_manual_run() method in class-oh-deletion-plugin.php
+// Initialize 410 tracker if enabled
+function oh_init_410_tracker() {
+    $options = get_option(DOOP_OPTIONS_KEY, array('enable_410' => 'yes'));
+    
+    if (isset($options['enable_410']) && $options['enable_410'] === 'yes') {
+        new OH_Deleted_Products_Tracker();
+    }
+}
+add_action('init', 'oh_init_410_tracker');
