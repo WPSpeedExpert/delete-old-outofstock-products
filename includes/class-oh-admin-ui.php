@@ -31,6 +31,11 @@
  *    4.2 Stats section
  *    4.3 Settings sections
  *    4.4 UI utilities
+ *    4.5 Product age field callback
+ *    4.6 Delete images checkbox callback
+ *    4.7 Render settings page
+ *    4.8 410 Gone status checkbox callback
+ *    4.9 410 Section description callback
  */
 
 // Exit if accessed directly.
@@ -94,8 +99,9 @@ class OH_Admin_UI {
         $default_options = array(
             'product_age' => 18, // Default: 18 months
             'delete_images' => 'yes', // Default: Yes
+            'enable_410' => 'yes', // Default: Yes
         );
-
+    
         $this->options = get_option( DOOP_OPTIONS_KEY, $default_options );
     }
     
@@ -117,7 +123,7 @@ class OH_Admin_UI {
     }
     
     /**
-     * 2.2 Register settings
+     * 2.2 Register settings - Add new 410 setting field
      */
     public function register_settings() {
         register_setting(
@@ -125,21 +131,21 @@ class OH_Admin_UI {
             DOOP_OPTIONS_KEY,
             array( $this, 'sanitize_options' )
         );
-
+    
         add_settings_section(
             'doop_stats_section',
             __( 'Product Statistics', 'delete-old-outofstock-products' ),
             array( $this, 'stats_section_callback' ),
             'doop-settings'
         );
-
+    
         add_settings_section(
             'doop_main_section',
             __( 'Product Deletion Settings', 'delete-old-outofstock-products' ),
             array( $this, 'section_callback' ),
             'doop-settings'
         );
-
+    
         add_settings_field(
             'product_age',
             __( 'Product Age (months)', 'delete-old-outofstock-products' ),
@@ -147,7 +153,7 @@ class OH_Admin_UI {
             'doop-settings',
             'doop_main_section'
         );
-
+    
         add_settings_field(
             'delete_images',
             __( 'Delete Product Images', 'delete-old-outofstock-products' ),
@@ -155,10 +161,28 @@ class OH_Admin_UI {
             'doop-settings',
             'doop_main_section'
         );
+        
+        add_settings_field(
+            'enable_410',
+            __( 'Enable 410 Gone Status', 'delete-old-outofstock-products' ),
+            array( $this, 'enable_410_callback' ),
+            'doop-settings',
+            'doop_main_section'
+        );
+        
+        // Add 410 stats section if enabled
+        if (isset($this->options['enable_410']) && $this->options['enable_410'] === 'yes') {
+            add_settings_section(
+                'doop_410_section',
+                __( '410 Gone Status', 'delete-old-outofstock-products' ),
+                array( $this, 'section_410_callback' ),
+                'doop-settings'
+            );
+        }
     }
     
     /**
-     * 2.3 Sanitize options
+     * 2.3 Sanitize options - Add new 410 option
      */
     public function sanitize_options( $input ) {
         $output = array();
@@ -171,6 +195,9 @@ class OH_Admin_UI {
         
         // Sanitize delete images option
         $output['delete_images'] = isset( $input['delete_images'] ) ? 'yes' : 'no';
+        
+        // Sanitize enable 410 option
+        $output['enable_410'] = isset( $input['enable_410'] ) ? 'yes' : 'no';
         
         return $output;
     }
@@ -751,3 +778,42 @@ class OH_Admin_UI {
         <?php
     }
 }
+
+    /**
+     * 4.8 410 Gone status checkbox callback
+     */
+    public function enable_410_callback() {
+        $enable_410 = isset( $this->options['enable_410'] ) ? $this->options['enable_410'] : 'yes';
+        ?>
+        <label for="enable_410">
+            <input type="checkbox" id="enable_410" name="<?php echo esc_attr( DOOP_OPTIONS_KEY ); ?>[enable_410]" <?php checked( $enable_410, 'yes' ); ?> />
+            <?php esc_html_e( 'Return 410 Gone status for deleted products', 'delete-old-outofstock-products' ); ?>
+        </label>
+        <p class="description oh-doop-description">
+            <?php esc_html_e( 'This will track deleted product URLs and return a 410 Gone status code when those URLs are accessed. This helps search engines understand that these products have been permanently removed.', 'delete-old-outofstock-products' ); ?>
+        </p>
+        <?php
+    }
+    
+    /**
+     * 4.9 410 Section description callback
+     */
+    public function section_410_callback() {
+        // Get count of tracked deleted products
+        $deleted_products = get_option('oh_doop_deleted_products', array());
+        $count = count($deleted_products);
+        
+        ?>
+        <div class="oh-doop-stats">
+            <table class="widefat striped">
+                <tr>
+                    <td><strong><?php esc_html_e( 'Tracked Deleted Products:', 'delete-old-outofstock-products' ); ?></strong></td>
+                    <td><?php echo esc_html( $count ); ?></td>
+                </tr>
+            </table>
+            <p class="description">
+                <?php esc_html_e( 'Number of deleted products being tracked for 410 Gone status responses. Old records are automatically cleared after one year.', 'delete-old-outofstock-products' ); ?>
+            </p>
+        </div>
+        <?php
+    }
