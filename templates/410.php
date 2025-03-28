@@ -4,10 +4,11 @@
  * Template for displaying 410 Gone status for deleted products
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.4.1
+ * @version 2.4.4
  * @since 2.4.0
  */
 
+// Exit if accessed directly.
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
