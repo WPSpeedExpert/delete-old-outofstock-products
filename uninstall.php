@@ -6,7 +6,7 @@
  * This file is executed when the plugin is uninstalled to clean up any data created by the plugin.
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.4.4
+ * @version 2.4.5
  */
 
 /**
@@ -52,6 +52,8 @@ delete_option( DOOP_PROCESS_OPTION );
 delete_option( DOOP_RESULT_OPTION );
 delete_option( 'oh_doop_too_many_products' );
 delete_option( 'oh_doop_deleted_products' ); // Remove the 410 tracking data
+delete_option( 'oh_doop_products_processed' );
+delete_option( 'oh_doop_products_deleted' );
 
 // 2.3 Remove log files
 $upload_dir = wp_upload_dir();
