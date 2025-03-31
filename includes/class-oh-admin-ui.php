@@ -691,14 +691,14 @@ class OH_Admin_UI {
             return;
         }
         
-        // Status checking code - unchanged
+        // Check if process is running
         $is_running = get_option( DOOP_PROCESS_OPTION, false );
         $deletion_status = isset( $_GET['deletion_status'] ) ? sanitize_text_field( $_GET['deletion_status'] ) : '';
         $deleted_count = isset( $_GET['deleted'] ) ? intval( $_GET['deleted'] ) : false;
         $last_run_count = get_option( DOOP_RESULT_OPTION, false );
         $too_many_count = get_option( 'oh_doop_too_many_products', false );
         
-        // Clear flag code - unchanged 
+        // Clear the too many products flag if it exists
         if ($too_many_count !== false && $deletion_status !== 'too_many') {
             delete_option('oh_doop_too_many_products');
             $too_many_count = false;
@@ -717,7 +717,7 @@ class OH_Admin_UI {
             </div>
             
             <?php
-            // Status notices code - unchanged
+            // Only show one status message, prioritizing AJAX updates
             if (($is_running && $is_running !== 0) || 'running' === $deletion_status) {
                 // Don't show any message - AJAX will handle it
             } elseif ('completed' === $deletion_status) {
@@ -784,8 +784,7 @@ class OH_Admin_UI {
                 settings_fields( 'doop_settings_group' );
                 
                 // Only render the stats section and main settings section
-                do_settings_section( 'doop-settings', 'doop_stats_section' );
-                do_settings_section( 'doop-settings', 'doop_main_section' );
+                do_settings_section( 'doop-settings' );
                 
                 // Add the submit button right after the main settings
                 submit_button();
@@ -803,7 +802,6 @@ class OH_Admin_UI {
             ?>
             
             <div class="oh-doop-manual-run card">
-                <!-- Manual run section unchanged -->
                 <h2><?php esc_html_e( 'Manual Run', 'delete-old-outofstock-products' ); ?></h2>
                 
                 <?php
@@ -833,16 +831,16 @@ class OH_Admin_UI {
                                         echo esc_html( get_date_from_gmt( date( 'Y-m-d H:i:s', $next_scheduled ), 'F j, Y, g:i a' ) );
                                         echo ' <em>' . esc_html__( '(just scheduled)', 'delete-old-outofstock-products' ) . '</em>';
                                         
-                                    // Only refresh if not a manual process and not on a running status page
-                                    if (!isset($_GET['manual']) && !isset($_GET['deletion_status']) && !get_option('oh_doop_manual_process', false)) {
-                                        // Refresh the page to update the UI
-                                        echo '<meta http-equiv="refresh" content="0;URL=\'' . 
-                                            esc_url(add_query_arg('freshly_scheduled', '1', admin_url('admin.php?page=doop-settings'))) . 
-                                            '\'" />';
-                                    } else {
-                                        // Clear the manual process flag
-                                        delete_option('oh_doop_manual_process');
-                                    }
+                                        // Only refresh if not a manual process and not on a running status page
+                                        if (!isset($_GET['manual']) && !isset($_GET['deletion_status']) && !get_option('oh_doop_manual_process', false)) {
+                                            // Refresh the page to update the UI
+                                            echo '<meta http-equiv="refresh" content="0;URL=\'' . 
+                                                esc_url(add_query_arg('freshly_scheduled', '1', admin_url('admin.php?page=doop-settings'))) . 
+                                                '\'" />';
+                                        } else {
+                                            // Clear the manual process flag
+                                            delete_option('oh_doop_manual_process');
+                                        }
                                     } else {
                                         esc_html_e( 'Unable to schedule cron - please check your WordPress configuration', 'delete-old-outofstock-products' );
                                     }
