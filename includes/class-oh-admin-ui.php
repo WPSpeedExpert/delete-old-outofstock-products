@@ -4,7 +4,7 @@
  * Admin UI class for Delete Old Out-of-Stock Products
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.4.6
+ * @version 2.5.2
  * @since 2.2.3
  */
 
@@ -676,238 +676,238 @@ class OH_Admin_UI {
         <?php
     }
 
-/**
- * 4.9 Render settings page - Modified
- */
-public function render_settings_page() {
-    if ( ! current_user_can( 'manage_options' ) ) {
-        return;
-    }
-    
-    // Debug output to see registered sections and fields
-    global $wp_settings_sections, $wp_settings_fields;
-    if (isset($wp_settings_sections['doop-settings'])) {
-        error_log('Settings sections: ' . print_r(array_keys($wp_settings_sections['doop-settings']), true));
-    }
-    if (isset($wp_settings_fields['doop-settings'])) {
-        error_log('Settings fields by section: ' . print_r(array_keys($wp_settings_fields['doop-settings']), true));
-    }
-    
-    // Check if process is running
-    $is_running = get_option( DOOP_PROCESS_OPTION, false );
-    $deletion_status = isset( $_GET['deletion_status'] ) ? sanitize_text_field( $_GET['deletion_status'] ) : '';
-    $deleted_count = isset( $_GET['deleted'] ) ? intval( $_GET['deleted'] ) : false;
-    $last_run_count = get_option( DOOP_RESULT_OPTION, false );
-    $too_many_count = get_option( 'oh_doop_too_many_products', false );
-    
-    // Clear the too many products flag if it exists
-    if ($too_many_count !== false && $deletion_status !== 'too_many') {
-        delete_option('oh_doop_too_many_products');
-        $too_many_count = false;
-    }
-    
-    ?>
-    <div class="wrap">
-        <h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
+    /**
+     * 4.9 Render settings page - Modified
+     */
+    public function render_settings_page() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
         
-        <div id="oh-process-status">
-            <!-- Will be filled by JavaScript -->
-        </div>
+        // Debug output to see registered sections and fields
+        global $wp_settings_sections, $wp_settings_fields;
+        if (isset($wp_settings_sections['doop-settings'])) {
+            error_log('Settings sections: ' . print_r(array_keys($wp_settings_sections['doop-settings']), true));
+        }
+        if (isset($wp_settings_fields['doop-settings'])) {
+            error_log('Settings fields by section: ' . print_r(array_keys($wp_settings_fields['doop-settings']), true));
+        }
         
-        <div id="oh-deletion-log">
-            <!-- Will be filled by JavaScript when available -->
-        </div>
+        // Check if process is running
+        $is_running = get_option( DOOP_PROCESS_OPTION, false );
+        $deletion_status = isset( $_GET['deletion_status'] ) ? sanitize_text_field( $_GET['deletion_status'] ) : '';
+        $deleted_count = isset( $_GET['deleted'] ) ? intval( $_GET['deleted'] ) : false;
+        $last_run_count = get_option( DOOP_RESULT_OPTION, false );
+        $too_many_count = get_option( 'oh_doop_too_many_products', false );
         
-        <?php
-        // Only show one status message, prioritizing AJAX updates
-        if (($is_running && $is_running !== 0) || 'running' === $deletion_status) {
-            // Don't show any message - AJAX will handle it
-        } elseif ('completed' === $deletion_status) {
-            // Show completion message with count from URL parameter or last stored count
-            $count = false !== $deleted_count ? $deleted_count : $last_run_count;
-            if (false !== $count) {
+        // Clear the too many products flag if it exists
+        if ($too_many_count !== false && $deletion_status !== 'too_many') {
+            delete_option('oh_doop_too_many_products');
+            $too_many_count = false;
+        }
+        
+        ?>
+        <div class="wrap">
+            <h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
+            
+            <div id="oh-process-status">
+                <!-- Will be filled by JavaScript -->
+            </div>
+            
+            <div id="oh-deletion-log">
+                <!-- Will be filled by JavaScript when available -->
+            </div>
+            
+            <?php
+            // Only show one status message, prioritizing AJAX updates
+            if (($is_running && $is_running !== 0) || 'running' === $deletion_status) {
+                // Don't show any message - AJAX will handle it
+            } elseif ('completed' === $deletion_status) {
+                // Show completion message with count from URL parameter or last stored count
+                $count = false !== $deleted_count ? $deleted_count : $last_run_count;
+                if (false !== $count) {
+                    ?>
+                    <div class="notice notice-success">
+                        <p>
+                            <?php 
+                            printf( 
+                                esc_html__( 'Product cleanup completed. %d products were deleted.', 'delete-old-outofstock-products' ), 
+                                intval( $count )
+                            ); 
+                            
+                            if ($this->logger->log_exists()) {
+                                ?>
+                                <button type="button" class="button oh-view-log-btn"><?php esc_html_e('View Log', 'delete-old-outofstock-products'); ?></button>
+                                <?php
+                            }
+                            ?>
+                        </p>
+                    </div>
+                    <?php
+                    // Clear the last run count after showing it
+                    delete_option( DOOP_RESULT_OPTION );
+                }
+            } elseif ('too_many' === $deletion_status) {
+                $count = isset( $_GET['count'] ) ? intval( $_GET['count'] ) : ($too_many_count !== false ? $too_many_count : 0);
                 ?>
-                <div class="notice notice-success">
+                <div class="notice notice-warning">
+                    <p>
+                        <strong><?php esc_html_e( 'Too many products eligible for deletion', 'delete-old-outofstock-products' ); ?></strong>
+                    </p>
                     <p>
                         <?php 
                         printf( 
-                            esc_html__( 'Product cleanup completed. %d products were deleted.', 'delete-old-outofstock-products' ), 
-                            intval( $count )
+                            esc_html__( 'There are %d products eligible for deletion, which exceeds the safe limit for manual deletion (200). The automatic daily cron job will handle these deletions gradually. Please wait for the automatic process to run, or adjust your age settings to reduce the number of products being deleted at once.', 'delete-old-outofstock-products' ), 
+                            $count
                         ); 
-                        
-                        if ($this->logger->log_exists()) {
-                            ?>
-                            <button type="button" class="button oh-view-log-btn"><?php esc_html_e('View Log', 'delete-old-outofstock-products'); ?></button>
-                            <?php
-                        }
                         ?>
                     </p>
                 </div>
                 <?php
-                // Clear the last run count after showing it
-                delete_option( DOOP_RESULT_OPTION );
+                // Clear the too many products flag
+                delete_option('oh_doop_too_many_products');
+            } elseif ('already_running' === $deletion_status) {
+                ?>
+                <div class="notice notice-warning">
+                    <p>
+                        <strong><?php esc_html_e( 'A cleanup process is already running.', 'delete-old-outofstock-products' ); ?></strong>
+                    </p>
+                    <p>
+                        <?php esc_html_e( 'Please wait for the current process to complete before starting a new one.', 'delete-old-outofstock-products' ); ?>
+                    </p>
+                </div>
+                <?php
             }
-        } elseif ('too_many' === $deletion_status) {
-            $count = isset( $_GET['count'] ) ? intval( $_GET['count'] ) : ($too_many_count !== false ? $too_many_count : 0);
-            ?>
-            <div class="notice notice-warning">
-                <p>
-                    <strong><?php esc_html_e( 'Too many products eligible for deletion', 'delete-old-outofstock-products' ); ?></strong>
-                </p>
-                <p>
-                    <?php 
-                    printf( 
-                        esc_html__( 'There are %d products eligible for deletion, which exceeds the safe limit for manual deletion (200). The automatic daily cron job will handle these deletions gradually. Please wait for the automatic process to run, or adjust your age settings to reduce the number of products being deleted at once.', 'delete-old-outofstock-products' ), 
-                        $count
-                    ); 
-                    ?>
-                </p>
-            </div>
-            <?php
-            // Clear the too many products flag
-            delete_option('oh_doop_too_many_products');
-        } elseif ('already_running' === $deletion_status) {
-            ?>
-            <div class="notice notice-warning">
-                <p>
-                    <strong><?php esc_html_e( 'A cleanup process is already running.', 'delete-old-outofstock-products' ); ?></strong>
-                </p>
-                <p>
-                    <?php esc_html_e( 'Please wait for the current process to complete before starting a new one.', 'delete-old-outofstock-products' ); ?>
-                </p>
-            </div>
-            <?php
-        }
-        ?>
-        
-        <!-- Form starts here - only includes main settings sections, not the 410 section -->
-        <form method="post" action="options.php">
-            <?php
-            settings_fields( 'doop_settings_group' );
-            
-            // Simplified approach - let WordPress render all sections
-            do_settings_sections( 'doop-settings' );
-            
-            // Add the submit button right after the main settings
-            submit_button();
-            ?>
-        </form>
-        
-        <?php
-        // Add 410 stats section outside of the form if enabled
-        if (isset($this->options['enable_410']) && $this->options['enable_410'] === 'yes') {
-            ?>
-            <h2><?php esc_html_e( '410 Gone Status', 'delete-old-outofstock-products' ); ?></h2>
-            <?php
-            $this->section_410_callback();
-        }
-        ?>
-        
-        <div class="oh-doop-manual-run card">
-            <h2><?php esc_html_e( 'Manual Run', 'delete-old-outofstock-products' ); ?></h2>
-            
-            <?php
-            // Display cron schedule information
-            $next_scheduled = wp_next_scheduled( DOOP_CRON_HOOK );
-            $last_cron_time = get_option( 'oh_doop_last_cron_time', 0 );
             ?>
             
-            <div class="oh-doop-cron-info">
-                <h4><?php esc_html_e( 'Scheduled Cleanup Information', 'delete-old-outofstock-products' ); ?></h4>
-                <table class="widefat striped">
-                    <tr>
-                        <td><strong><?php esc_html_e( 'Next Scheduled Run:', 'delete-old-outofstock-products' ); ?></strong></td>
-                        <td>
-                            <?php 
-                            if ($next_scheduled) {
-                                echo esc_html( get_date_from_gmt( date( 'Y-m-d H:i:s', $next_scheduled ), 'F j, Y, g:i a' ) );
-                                if (isset($_GET['freshly_scheduled'])) {
-                                    echo ' <em>' . esc_html__( '(just scheduled)', 'delete-old-outofstock-products' ) . '</em>';
-                                }
-                            } else {
-                                // Force reschedule if not found
-                                wp_schedule_event( time(), 'daily', DOOP_CRON_HOOK );
-                                $next_scheduled = wp_next_scheduled( DOOP_CRON_HOOK );
-                                
+            <!-- Form starts here - only includes main settings sections, not the 410 section -->
+            <form method="post" action="options.php">
+                <?php
+                settings_fields( 'doop_settings_group' );
+                
+                // Simplified approach - let WordPress render all sections
+                do_settings_sections( 'doop-settings' );
+                
+                // Add the submit button right after the main settings
+                submit_button();
+                ?>
+            </form>
+            
+            <?php
+            // Add 410 stats section outside of the form if enabled
+            if (isset($this->options['enable_410']) && $this->options['enable_410'] === 'yes') {
+                ?>
+                <h2><?php esc_html_e( '410 Gone Status', 'delete-old-outofstock-products' ); ?></h2>
+                <?php
+                $this->section_410_callback();
+            }
+            ?>
+            
+            <div class="oh-doop-manual-run card">
+                <h2><?php esc_html_e( 'Manual Run', 'delete-old-outofstock-products' ); ?></h2>
+                
+                <?php
+                // Display cron schedule information
+                $next_scheduled = wp_next_scheduled( DOOP_CRON_HOOK );
+                $last_cron_time = get_option( 'oh_doop_last_cron_time', 0 );
+                ?>
+                
+                <div class="oh-doop-cron-info">
+                    <h4><?php esc_html_e( 'Scheduled Cleanup Information', 'delete-old-outofstock-products' ); ?></h4>
+                    <table class="widefat striped">
+                        <tr>
+                            <td><strong><?php esc_html_e( 'Next Scheduled Run:', 'delete-old-outofstock-products' ); ?></strong></td>
+                            <td>
+                                <?php 
                                 if ($next_scheduled) {
                                     echo esc_html( get_date_from_gmt( date( 'Y-m-d H:i:s', $next_scheduled ), 'F j, Y, g:i a' ) );
-                                    echo ' <em>' . esc_html__( '(just scheduled)', 'delete-old-outofstock-products' ) . '</em>';
-                                    
-                                    // Only refresh if not a manual process and not on a running status page
-                                    if (!isset($_GET['manual']) && !isset($_GET['deletion_status']) && !get_option('oh_doop_manual_process', false)) {
-                                        // Refresh the page to update the UI
-                                        echo '<meta http-equiv="refresh" content="0;URL=\'' . 
-                                            esc_url(add_query_arg('freshly_scheduled', '1', admin_url('admin.php?page=doop-settings'))) . 
-                                            '\'" />';
-                                    } else {
-                                        // Clear the manual process flag
-                                        delete_option('oh_doop_manual_process');
+                                    if (isset($_GET['freshly_scheduled'])) {
+                                        echo ' <em>' . esc_html__( '(just scheduled)', 'delete-old-outofstock-products' ) . '</em>';
                                     }
                                 } else {
-                                    esc_html_e( 'Unable to schedule cron - please check your WordPress configuration', 'delete-old-outofstock-products' );
+                                    // Force reschedule if not found
+                                    wp_schedule_event( time(), 'daily', DOOP_CRON_HOOK );
+                                    $next_scheduled = wp_next_scheduled( DOOP_CRON_HOOK );
+                                    
+                                    if ($next_scheduled) {
+                                        echo esc_html( get_date_from_gmt( date( 'Y-m-d H:i:s', $next_scheduled ), 'F j, Y, g:i a' ) );
+                                        echo ' <em>' . esc_html__( '(just scheduled)', 'delete-old-outofstock-products' ) . '</em>';
+                                        
+                                        // Only refresh if not a manual process and not on a running status page
+                                        if (!isset($_GET['manual']) && !isset($_GET['deletion_status']) && !get_option('oh_doop_manual_process', false)) {
+                                            // Refresh the page to update the UI
+                                            echo '<meta http-equiv="refresh" content="0;URL=\'' . 
+                                                esc_url(add_query_arg('freshly_scheduled', '1', admin_url('admin.php?page=doop-settings'))) . 
+                                                '\'" />';
+                                        } else {
+                                            // Clear the manual process flag
+                                            delete_option('oh_doop_manual_process');
+                                        }
+                                    } else {
+                                        esc_html_e( 'Unable to schedule cron - please check your WordPress configuration', 'delete-old-outofstock-products' );
+                                    }
                                 }
-                            }
-                            ?>
-                        </td>
-                    </tr>
-                    
-                    <?php if ($next_scheduled): ?>
-                    <tr>
-                        <td><strong><?php esc_html_e( 'Time Until Next Run:', 'delete-old-outofstock-products' ); ?></strong></td>
-                        <td>
-                            <?php 
-                            $time_diff = $next_scheduled - time();
-                            if ( $time_diff > 0 ) {
-                                echo esc_html( human_time_diff( time(), $next_scheduled ) );
-                            } else {
-                                esc_html_e( 'Overdue - Will run on next site visit', 'delete-old-outofstock-products' );
-                            }
-                            ?>
-                        </td>
-                    </tr>
-                    <?php endif; ?>
-                    
-                    <tr>
-                        <td><strong><?php esc_html_e( 'Last Automatic Run:', 'delete-old-outofstock-products' ); ?></strong></td>
-                        <td>
-                            <?php 
-                            if ( $last_cron_time > 0 ) {
-                                echo esc_html( get_date_from_gmt( date( 'Y-m-d H:i:s', $last_cron_time ), 'F j, Y, g:i a' ) );
-                                echo ' (' . esc_html( human_time_diff( $last_cron_time, time() ) ) . ' ' . esc_html__( 'ago', 'delete-old-outofstock-products' ) . ')';
-                            } else {
-                                esc_html_e( 'Not yet run', 'delete-old-outofstock-products' );
-                            }
-                            ?>
-                        </td>
-                    </tr>
-                    
-                    <?php if ($this->logger->log_exists()): ?>
-                    <tr>
-                        <td><strong><?php esc_html_e( 'Log File:', 'delete-old-outofstock-products' ); ?></strong></td>
-                        <td>
-                            <button type="button" class="button oh-view-log-btn"><?php esc_html_e('View Log', 'delete-old-outofstock-products'); ?></button>
-                        </td>
-                    </tr>
-                    <?php endif; ?>
-                </table>
+                                ?>
+                            </td>
+                        </tr>
+                        
+                        <?php if ($next_scheduled): ?>
+                        <tr>
+                            <td><strong><?php esc_html_e( 'Time Until Next Run:', 'delete-old-outofstock-products' ); ?></strong></td>
+                            <td>
+                                <?php 
+                                $time_diff = $next_scheduled - time();
+                                if ( $time_diff > 0 ) {
+                                    echo esc_html( human_time_diff( time(), $next_scheduled ) );
+                                } else {
+                                    esc_html_e( 'Overdue - Will run on next site visit', 'delete-old-outofstock-products' );
+                                }
+                                ?>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
+                        
+                        <tr>
+                            <td><strong><?php esc_html_e( 'Last Automatic Run:', 'delete-old-outofstock-products' ); ?></strong></td>
+                            <td>
+                                <?php 
+                                if ( $last_cron_time > 0 ) {
+                                    echo esc_html( get_date_from_gmt( date( 'Y-m-d H:i:s', $last_cron_time ), 'F j, Y, g:i a' ) );
+                                    echo ' (' . esc_html( human_time_diff( $last_cron_time, time() ) ) . ' ' . esc_html__( 'ago', 'delete-old-outofstock-products' ) . ')';
+                                } else {
+                                    esc_html_e( 'Not yet run', 'delete-old-outofstock-products' );
+                                }
+                                ?>
+                            </td>
+                        </tr>
+                        
+                        <?php if ($this->logger->log_exists()): ?>
+                        <tr>
+                            <td><strong><?php esc_html_e( 'Log File:', 'delete-old-outofstock-products' ); ?></strong></td>
+                            <td>
+                                <button type="button" class="button oh-view-log-btn"><?php esc_html_e('View Log', 'delete-old-outofstock-products'); ?></button>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
+                    </table>
+                </div>
+                
+                <p><?php esc_html_e( 'Click the button below to manually run the deletion process.', 'delete-old-outofstock-products' ); ?></p>
+                <p><em><?php esc_html_e( 'Note: The cleanup process runs in the background and you can navigate away after starting it.', 'delete-old-outofstock-products' ); ?></em></p>
+                
+                <?php if ( $is_running && $is_running !== 0 ) : ?>
+                    <p><strong><?php esc_html_e( 'A cleanup process is already running. Please wait for it to complete.', 'delete-old-outofstock-products' ); ?></strong></p>
+                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=doop-settings' ) ); ?>" class="button"><?php esc_html_e( 'Refresh Status', 'delete-old-outofstock-products' ); ?></a>
+                <?php else : ?>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                        <input type="hidden" name="action" value="oh_run_product_deletion">
+                        <?php wp_nonce_field( 'oh_run_product_deletion_nonce', 'oh_nonce' ); ?>
+                        <?php submit_button( __( 'Run Product Cleanup Now', 'delete-old-outofstock-products' ), 'primary', 'run_now', false ); ?>
+                        <span class="oh-status-indicator"></span>
+                    </form>
+                <?php endif; ?>
             </div>
-            
-            <p><?php esc_html_e( 'Click the button below to manually run the deletion process.', 'delete-old-outofstock-products' ); ?></p>
-            <p><em><?php esc_html_e( 'Note: The cleanup process runs in the background and you can navigate away after starting it.', 'delete-old-outofstock-products' ); ?></em></p>
-            
-            <?php if ( $is_running && $is_running !== 0 ) : ?>
-                <p><strong><?php esc_html_e( 'A cleanup process is already running. Please wait for it to complete.', 'delete-old-outofstock-products' ); ?></strong></p>
-                <a href="<?php echo esc_url( admin_url( 'admin.php?page=doop-settings' ) ); ?>" class="button"><?php esc_html_e( 'Refresh Status', 'delete-old-outofstock-products' ); ?></a>
-            <?php else : ?>
-                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-                    <input type="hidden" name="action" value="oh_run_product_deletion">
-                    <?php wp_nonce_field( 'oh_run_product_deletion_nonce', 'oh_nonce' ); ?>
-                    <?php submit_button( __( 'Run Product Cleanup Now', 'delete-old-outofstock-products' ), 'primary', 'run_now', false ); ?>
-                    <span class="oh-status-indicator"></span>
-                </form>
-            <?php endif; ?>
         </div>
-    </div>
-    <?php
-}
+        <?php
+    }
 }
