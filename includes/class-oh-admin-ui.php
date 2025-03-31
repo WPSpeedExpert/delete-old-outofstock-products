@@ -784,7 +784,7 @@ class OH_Admin_UI {
                 settings_fields( 'doop_settings_group' );
                 
                 // Only render the stats section and main settings section
-                do_settings_section( 'doop-settings' );
+                do_settings_sections( 'doop-settings' );
                 
                 // Add the submit button right after the main settings
                 submit_button();
