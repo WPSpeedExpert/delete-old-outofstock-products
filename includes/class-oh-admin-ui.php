@@ -4,7 +4,7 @@
  * Admin UI class for Delete Old Out-of-Stock Products
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.4.5
+ * @version 2.4.6
  * @since 2.2.3
  */
 
@@ -606,7 +606,7 @@ class OH_Admin_UI {
             <?php if ($count > 0) : ?>
                 <!-- Add collapsible section -->
                 <p>
-                    <button type="button" class="button" id="toggle-deleted-products">
+                    <button type="button" class="button" id="toggle-deleted-products-btn">
                         <?php esc_html_e('View Recent Deleted Products', 'delete-old-outofstock-products'); ?>
                     </button>
                 </p>
@@ -665,7 +665,7 @@ class OH_Admin_UI {
                 <!-- Add JavaScript to toggle visibility -->
                 <script type="text/javascript">
                 jQuery(document).ready(function($) {
-                    $('#toggle-deleted-products').on('click', function() {
+                    $('#toggle-deleted-products-btn').on('click', function() {
                         $('#deleted-products-details').slideToggle();
                         
                         // Toggle button text
