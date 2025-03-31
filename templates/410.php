@@ -4,7 +4,7 @@
  * Template for displaying 410 Gone status for deleted products
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.4.5
+ * @version 2.4.8
  * @since 2.4.4
  */
 
