@@ -5,7 +5,7 @@
  * Handles AJAX status monitoring and UI updates for the product deletion process.
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.4.4
+ * @version 2.4.5
  */
 
 /**
@@ -100,8 +100,12 @@
             
             statusEl.show().removeClass('success error').html(
                 '<p><strong>Starting cleanup process...</strong></p>' +
-                '<p>This may take a moment, please wait...</p>'
+                '<p>This may take a moment, please wait...</p>' +
+                '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Status</a></p>'
             );
+            
+            // Bind the refresh button immediately
+            bindRefreshStatus();
             
             // Get form data
             var formData = new FormData(this);
@@ -457,11 +461,14 @@
             statusEl.removeClass('error').addClass('success').show().html(
                 '<p><strong>Process completed!</strong></p>' +
                 '<p>' + productsDeleted + ' products were deleted.</p>' +
-                '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Status</a></p>'
+                '<p><a href="javascript:void(0);" class="oh-refresh-status button">Refresh Page</a></p>'
             );
             
-            // Bind the refresh button
-            bindRefreshStatus();
+            // Bind the refresh button to reload the page
+            $('.oh-refresh-status').off('click').on('click', function(e) {
+                e.preventDefault();
+                window.location.reload();
+            });
             
             // Add log button if available
             if (data.has_log) {
@@ -477,14 +484,6 @@
             
             // Stop checking status
             clearInterval(checkInterval);
-            
-            // Reload page after a short delay to show updated stats
-            setTimeout(function() {
-                if (debug) console.log('Reloading page with completion parameters');
-                window.location.href = window.location.href.split('?')[0] + 
-                    '?page=doop-settings&deletion_status=completed&deleted=' + 
-                    productsDeleted + '&t=' + Date.now();
-            }, 3000);
         }
         // Too many products
         else if (data.too_many) {
@@ -508,14 +507,6 @@
             
             // Stop checking status
             clearInterval(checkInterval);
-            
-            // Reload page after a short delay
-            setTimeout(function() {
-                if (debug) console.log('Reloading page with too_many parameters');
-                window.location.href = window.location.href.split('?')[0] + 
-                    '?page=doop-settings&deletion_status=too_many&count=' + 
-                    data.too_many_count + '&t=' + Date.now();
-            }, 3000);
         }
         // No process running
         else {
