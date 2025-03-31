@@ -781,10 +781,40 @@ class OH_Admin_UI {
             <!-- Form starts here - only includes main settings sections, not the 410 section -->
             <form method="post" action="options.php">
                 <?php
-                settings_fields( 'doop_settings_group' );
+                settings_fields('doop_settings_group');
                 
-                // Only render the stats section and main settings section
-                do_settings_sections( 'doop-settings' );
+                // Manually render only specific sections, excluding the 410 section
+                global $wp_settings_sections;
+                
+                // Check if sections exist
+                if (isset($wp_settings_sections['doop-settings'])) {
+                    // Get all registered sections
+                    $sections = $wp_settings_sections['doop-settings'];
+                    
+                    // Render only the stats and main sections
+                    foreach ($sections as $section) {
+                        // Skip the 410 section
+                        if ($section['id'] === 'doop_410_section') {
+                            continue;
+                        }
+                        
+                        // Output section heading and callback
+                        if (!empty($section['title'])) {
+                            echo "<h2>{$section['title']}</h2>\n";
+                        }
+                        
+                        if (!empty($section['callback'])) {
+                            call_user_func($section['callback'], $section);
+                        }
+                        
+                        // Output fields for this section
+                        if (isset($wp_settings_fields) && isset($wp_settings_fields['doop-settings'][$section['id']])) {
+                            echo '<table class="form-table" role="presentation">';
+                            do_settings_fields('doop-settings', $section['id']);
+                            echo '</table>';
+                        }
+                    }
+                }
                 
                 // Add the submit button right after the main settings
                 submit_button();
