@@ -5,7 +5,7 @@
  * Handles AJAX status monitoring and UI updates for the product deletion process.
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.4.2
+ * @version 2.4.4
  */
 
 /**
