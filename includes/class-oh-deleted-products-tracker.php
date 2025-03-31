@@ -4,8 +4,8 @@
  * Deleted Products Tracker class for Delete Old Out-of-Stock Products
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.4.0
- * @since 2.4.0
+ * @version 2.4.4
+ * @since 2.4.4
  */
 
 // Exit if accessed directly.
@@ -71,7 +71,8 @@ class OH_Deleted_Products_Tracker {
         // Add timestamp to the product entry
         $deleted_products[$product_slug] = array(
             'id' => $product_id,
-            'deleted_at' => time()
+            'deleted_at' => time(),
+            'url' => get_permalink($product_id)
         );
         
         // If we're over the limit, remove oldest entries
@@ -96,43 +97,57 @@ class OH_Deleted_Products_Tracker {
      * Check if the current request is for a deleted product and return 410 if so
      */
     public function check_for_deleted_product() {
-        // Only check on single product pages with 404s
+        // Only check on 404 pages
         if (!is_404()) {
             return;
         }
         
-        // Get the requested path
-        $request_path = trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH), '/');
-        $path_parts = explode('/', $request_path);
+        // Get the full requested URL and path
+        $request_url = $_SERVER['REQUEST_URI'];
+        $request_path = trim(parse_url($request_url, PHP_URL_PATH), '/');
         
-        // Get base product slug - we assume it's the last part of the URL for products
-        $potential_slug = end($path_parts);
+        // First, use a similar approach to the theme function - check for /product/ in URL
+        $has_product_path = (strpos($request_url, '/product/') !== false);
         
-        // For performance, quickly check if this even looks like a product page
-        $shop_page_uri = get_post_field('post_name', wc_get_page_id('shop'));
-        $product_base = get_option('woocommerce_product_slug', 'product');
+        // Products that don't use the default permalink structure
+        if (!$has_product_path) {
+            // Get shop page slug
+            $shop_page_uri = get_post_field('post_name', wc_get_page_id('shop'));
+            // Check for shop/{product-slug} pattern
+            $has_product_path = (strpos($request_url, '/' . $shop_page_uri . '/') !== false);
+        }
         
-        // Check if this is a product URL structure
-        $is_product_url = (in_array($shop_page_uri, $path_parts) || in_array($product_base, $path_parts));
-        
-        if (!$is_product_url) {
-            // This doesn't appear to be a product URL
+        // Skip if not a product URL
+        if (!$has_product_path) {
             return;
         }
         
-        // Get our stored deleted products
+        // Get slug - the last part of the URL
+        $path_parts = explode('/', $request_path);
+        $potential_slug = end($path_parts);
+        
+        // Check if this is a tracked deleted product
         $deleted_products = get_option($this->option_name, array());
         
-        // Check if the requested slug matches a deleted product
         if (isset($deleted_products[$potential_slug])) {
             $this->logger->log("410 response for deleted product: $potential_slug");
-            
-            // Set the 410 Gone status
             status_header(410);
             
-            // You may want to load a custom template here
+            // Load the 410 template
             include_once(DOOP_PLUGIN_DIR . 'templates/410.php');
             exit;
+        }
+        
+        // Additional check by trying to match full URLs (in case of non-standard permalinks)
+        foreach ($deleted_products as $slug => $data) {
+            if (isset($data['url']) && strpos($data['url'], $potential_slug) !== false) {
+                $this->logger->log("410 response for deleted product by URL match: $slug");
+                status_header(410);
+                
+                // Load the 410 template
+                include_once(DOOP_PLUGIN_DIR . 'templates/410.php');
+                exit;
+            }
         }
     }
     
@@ -140,6 +155,7 @@ class OH_Deleted_Products_Tracker {
      * Clean up old deleted product records (older than X days)
      * 
      * @param int $days Number of days to keep records (default 365)
+     * @return int Number of removed records
      */
     public function cleanup_old_records($days = 365) {
         $deleted_products = get_option($this->option_name, array());
