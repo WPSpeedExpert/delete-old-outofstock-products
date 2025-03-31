@@ -10,6 +10,7 @@ Automatically delete WooCommerce products that are **out of stock** and **older 
   - Are **out of stock**.
   - Were published more than **X months ago** (configurable, default 18 months).
 - Optionally deletes the product's **featured image** and **gallery images**.
+- **Returns 410 Gone status** for deleted product URLs, improving SEO by telling search engines that products have been permanently removed.
 - **Protects WooCommerce placeholder images** from being deleted.
 - **Preserves images used by multiple products** or posts.
 - Shows helpful **statistics** about eligible products for deletion.
@@ -44,6 +45,7 @@ Automatically delete WooCommerce products that are **out of stock** and **older 
   - Deletes products that are marked as **out of stock**.
   - Optionally deletes the product's **featured image** and **gallery images** (while preserving WooCommerce placeholder images).
   - Permanently deletes the product from the database.
+  - Tracks deleted product URLs to return a **410 Gone status** when accessed.
 
 ---
 
@@ -52,14 +54,31 @@ Navigate to **WooCommerce → Delete Old Products** to configure:
 
 - **Product Age (months)**: Products older than this will be considered for deletion (if out of stock).
 - **Delete Product Images**: Choose whether to delete product images or keep them when deleting products.
+- **Enable 410 Gone Status**: Choose whether to track deleted products and return a 410 Gone HTTP status when their URLs are accessed.
 
 The settings page also shows helpful statistics:
 - Total number of products in your store
 - Number of out-of-stock products
 - Number of products older than your configured threshold
 - Number of products eligible for deletion (both out of stock AND old)
+- Number of tracked deleted products (when 410 feature is enabled)
 
 You can also trigger a manual cleanup by clicking the "Run Product Cleanup Now" button at the bottom of the settings page.
+
+---
+
+## 📱 SEO Benefits of 410 Gone Status
+When a product is deleted, the plugin (if enabled) will:
+1. Track the product's URL
+2. Return a proper **410 Gone** status code when someone tries to access the deleted product URL
+3. Display a user-friendly message indicating the product is no longer available
+4. Provide navigation back to the shop
+
+This is better for SEO than a standard 404 page because:
+- It tells search engines the product has been **intentionally removed** (not just missing)
+- Search engines will remove the URL from their index faster
+- It reduces "crawl budget" waste on pages that no longer exist
+- It provides a better user experience for visitors following old links
 
 ---
 
@@ -69,8 +88,9 @@ You can also trigger a manual cleanup by clicking the "Run Product Cleanup Now" 
 - WooCommerce placeholder images are **protected from deletion**.
 - Images used in multiple products or in post content are **preserved**.
 - Uses **memory-efficient batch processing** to handle large stores.
+- The 410 tracking system automatically cleans up records older than 1 year.
 - Deactivation removes the scheduled cron job.
-- Uninstallation removes the cron job and all plugin settings.
+- Uninstallation removes the cron job, all plugin settings, and 410 tracking data.
 
 ---
 
@@ -78,6 +98,7 @@ You can also trigger a manual cleanup by clicking the "Run Product Cleanup Now" 
 When the plugin is uninstalled:
 - The cron job is unscheduled.
 - Plugin settings are deleted.
+- 410 tracking data is removed.
 - No product data is deleted during uninstallation.
 
 ---

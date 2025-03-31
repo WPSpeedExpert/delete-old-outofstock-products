@@ -4,7 +4,7 @@
  * Deletion Processor class for Delete Old Out-of-Stock Products
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.4.1
+ * @version 2.4.4
  */
 
 // Exit if accessed directly.
@@ -46,17 +46,26 @@ class OH_Deletion_Processor {
         $options = get_option( DOOP_OPTIONS_KEY, array(
             'product_age' => 18,
             'delete_images' => 'yes',
+            'enable_410' => 'yes',
         ) );
 
         $product_age = isset( $options['product_age'] ) ? absint( $options['product_age'] ) : 18;
         $delete_images = isset( $options['delete_images'] ) ? $options['delete_images'] : 'yes';
+        $enable_410 = isset( $options['enable_410'] ) ? $options['enable_410'] : 'yes';
 
         $date_threshold = date( 'Y-m-d H:i:s', strtotime( "-{$product_age} months" ) );
         
         $this->logger->log("Starting product deletion process with age threshold: $product_age months");
         $this->logger->log("Date threshold: $date_threshold");
         $this->logger->log("Delete images setting: $delete_images");
+        $this->logger->log("Enable 410 tracking: $enable_410");
         $this->logger->log("Batch size: $batch_size");
+
+        // Get tracker instance if 410 tracking is enabled
+        $tracker = null;
+        if ('yes' === $enable_410) {
+            $tracker = new OH_Deleted_Products_Tracker();
+        }
 
         // Process in smaller batches to reduce memory usage
         $offset = 0;
@@ -117,6 +126,12 @@ class OH_Deletion_Processor {
                         if ( 'yes' === $delete_images ) {
                             $this->process_product_images($product, $product_id);
                         }
+                        
+                        // Track product for 410 responses if enabled
+                        if ('yes' === $enable_410 && $tracker) {
+                            $product_slug = $product->get_slug();
+                            $tracker->track_deleted_product($product_id, $product_slug);
+                        }
 
                         // Delete the product
                         $this->logger->log("Deleting product #$product_id: $product_name");
@@ -158,6 +173,11 @@ class OH_Deletion_Processor {
                 update_option( DOOP_PROCESS_OPTION, time() );
                 
             } while ( count( $products ) === $batch_size );
+            
+            // Clean up old records if 410 tracking is enabled
+            if ('yes' === $enable_410 && $tracker) {
+                $tracker->cleanup_old_records();
+            }
             
         } catch (Exception $e) {
             $this->logger->log("Fatal error in deletion process: " . $e->getMessage());
