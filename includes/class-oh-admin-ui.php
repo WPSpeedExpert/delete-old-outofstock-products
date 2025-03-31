@@ -385,7 +385,7 @@ class OH_Admin_UI {
         
         wp_enqueue_script(
             'oh-admin-scripts',
-            DOOP_PLUGIN_URL . 'assets/js/admin.js',
+            DOOP_PLUGIN_URL . 'js/admin.js',
             array( 'jquery' ),
             DOOP_VERSION . '.' . time(), // Add timestamp to force cache refresh
             true
