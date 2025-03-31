@@ -97,11 +97,9 @@ if ($using_generatepress) {
     }
     /* Only apply these styles if the theme doesn't override them */
     .error-410 h1 {
-        font-size: 28px;
         margin-bottom: 20px;
     }
     .error-410 p {
-        font-size: 16px;
         margin-bottom: 16px;
     }
 </style>
