@@ -4,7 +4,7 @@
  * Template for displaying 410 Gone status for deleted products
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.4.4
+ * @version 2.4.5
  * @since 2.4.4
  */
 
@@ -26,44 +26,57 @@ get_header();
 
 // Check if we're using GeneratePress or a theme with generate_ functions
 $using_generatepress = function_exists('generate_do_attr');
-?>
 
-<?php if ($using_generatepress) : ?>
+// Start the content container
+if ($using_generatepress) {
+    ?>
     <div <?php generate_do_attr('content'); ?>>
         <main <?php generate_do_attr('main'); ?>>
             <?php do_action('generate_before_main_content'); ?>
-<?php else: ?>
+    <?php
+} else {
+    ?>
     <div id="primary" class="content-area">
         <main id="main" class="site-main">
-<?php endif; ?>
+    <?php
+}
+?>
 
-            <div class="error-410 gone-product">
-                <div class="<?php echo $using_generatepress ? 'gb-container' : 'container'; ?>" style="text-align: center; padding: 60px 20px 120px;">
-                    <h1 class="has-text-align-center"><?php esc_html_e('Product No Longer Available', 'delete-old-outofstock-products'); ?></h1>
-                    <p class="has-text-align-center">
-                        <?php esc_html_e('This product has been removed or is no longer available.', 'delete-old-outofstock-products'); ?>
-                    </p>
-                    <div class="<?php echo $using_generatepress ? 'gb-button gb-button-410' : 'button-container'; ?>" style="margin-top: 20px;">
-                        <a href="<?php echo esc_url(function_exists('wc_get_page_permalink') ? wc_get_page_permalink('shop') : home_url('/shop')); ?>" class="button oh-410-button">
-                            <?php esc_html_e('Browse Other Products', 'delete-old-outofstock-products'); ?>
-                            <span class="<?php echo $using_generatepress ? 'gb-icon' : 'icon'; ?>">→</span>
-                        </a>
-                    </div>
-                </div>
-            </div>
+<div class="error-410 gone-product">
+    <div class="<?php echo $using_generatepress ? 'gb-container' : 'container'; ?>" style="text-align: center; padding: 60px 20px 120px;">
+        <h1 class="has-text-align-center"><?php esc_html_e('Product No Longer Available', 'delete-old-outofstock-products'); ?></h1>
+        <p class="has-text-align-center">
+            <?php esc_html_e('This product has been removed or is no longer available.', 'delete-old-outofstock-products'); ?>
+        </p>
+        <div class="<?php echo $using_generatepress ? 'gb-button gb-button-410' : 'button-container'; ?>" style="margin-top: 20px;">
+            <a href="<?php echo esc_url(function_exists('wc_get_page_permalink') ? wc_get_page_permalink('shop') : home_url('/shop')); ?>" class="button oh-410-button">
+                <?php esc_html_e('Browse Other Products', 'delete-old-outofstock-products'); ?>
+                <span class="<?php echo $using_generatepress ? 'gb-icon' : 'icon'; ?>">→</span>
+            </a>
+        </div>
+    </div>
+</div>
 
-<?php if ($using_generatepress) : ?>
+<?php
+// Close the content container based on the theme
+if ($using_generatepress) {
+    ?>
             <?php do_action('generate_after_main_content'); ?>
         </main>
     </div>
     <?php 
     do_action('generate_after_primary_content_area');
     generate_construct_sidebars();
-<?php else: ?>
+    ?>
+    <?php
+} else {
+    ?>
         </main>
     </div>
     <?php get_sidebar(); ?>
-<?php endif; ?>
+    <?php
+}
+?>
 
 <!-- Include the custom CSS but allow theme styling to take precedence -->
 <style>
