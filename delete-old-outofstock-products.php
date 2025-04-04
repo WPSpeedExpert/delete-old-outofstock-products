@@ -3,7 +3,7 @@
  * Plugin Name:        Delete Old Out-of-Stock Products
  * Plugin URI:         https://github.com/WPSpeedExpert/delete-old-outofstock-products
  * Description:        Automatically deletes WooCommerce products that are out of stock and older than 1.5 years, including their images. Returns 410 Gone for deleted product URLs.
- * Version:            2.5.2
+ * Version:            2.5.3
  * Author:             OctaHexa
  * Author URI:         https://octahexa.com
  * Text Domain:        delete-old-outofstock-products
@@ -16,7 +16,7 @@
 /**
  * Main plugin file: /delete-old-outofstock-products.php
  *
- * This is the main plugin file that initializes all functionality for 
+ * This is the main plugin file that initializes all functionality for
  * Delete Old Out-of-Stock Products plugin.
  *
  * @package Delete_Old_Outofstock_Products
@@ -25,18 +25,18 @@
 
 /**
  * TABLE OF CONTENTS:
- * 
+ *
  * 1. SETUP & INITIALIZATION
  *    1.1 Exit if accessed directly
  *    1.2 Define constants
  *    1.3 Require files
  *    1.4 Initialize plugin
- * 
+ *
  * 2. PLUGIN CLASS
  *    2.1 Constructor
  *    2.2 Activation/Deactivation hooks
  *    2.3 Load text domain
- * 
+ *
  * 3. CORE FUNCTIONALITY
  *    3.1 Main clean-up process
  *    3.2 Background processing
@@ -83,7 +83,7 @@ function oh_handle_manual_run() {
 // Initialize 410 tracker if enabled
 function oh_init_410_tracker() {
     $options = get_option(DOOP_OPTIONS_KEY, array('enable_410' => 'yes'));
-    
+
     if (isset($options['enable_410']) && $options['enable_410'] === 'yes') {
         new OH_Deleted_Products_Tracker();
     }
