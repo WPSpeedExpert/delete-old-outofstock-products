@@ -4,7 +4,7 @@
  * Main plugin class for Delete Old Out-of-Stock Products
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.4.2
+ * @version 2.4.3
  */
 
 /**
@@ -309,9 +309,9 @@ class OH_Deletion_Plugin {
         // Set a flag to prevent the cron schedule refresh redirect
         update_option('oh_doop_manual_process', true);
 
-        // For small batches, run directly for immediate feedback
-        if (isset($eligible_count) && $eligible_count < 20) {
-            $this->logger->log("Running deletion process directly (small number of products)");
+        // For small to medium batches, run directly for immediate feedback
+        if (isset($eligible_count) && $eligible_count < 100) {
+            $this->logger->log("Running deletion process directly (batch size: $eligible_count)");
 
             try {
                 // Run the process directly
@@ -378,8 +378,6 @@ class OH_Deletion_Plugin {
             } else {
                 // If it's the daily recurring job, add a one-time event with a different hook
                 wp_schedule_single_event(time(), DOOP_CRON_HOOK . '_manual');
-                // Add an action to handle this hook
-                add_action(DOOP_CRON_HOOK . '_manual', array($this, 'run_scheduled_deletion'));
                 $this->logger->log("Scheduled additional manual event while preserving daily schedule");
             }
         }
@@ -388,9 +386,11 @@ class OH_Deletion_Plugin {
         $this->logger->log("Spawning cron system to run event immediately");
         spawn_cron();
 
-        // Add a direct trigger as fallback in case wp-cron is unreliable
+        // Enhanced fallback mechanism - Add multiple approaches for triggering the deletion
         if ($eligible_count > 0) {
-            $this->logger->log("Adding immediate fallback trigger for batch");
+            $this->logger->log("Adding enhanced fallback triggers for batch");
+
+            // Approach 1: Traditional AJAX callback with minimal timeout
             wp_remote_post(admin_url('admin-ajax.php'), array(
                 'blocking' => false,
                 'sslverify' => false,
@@ -398,9 +398,36 @@ class OH_Deletion_Plugin {
                     'action' => 'oh_trigger_deletion',
                     'security' => wp_create_nonce('oh_trigger_deletion_nonce')
                 ),
-                'timeout' => 1,
+                'timeout' => 0.01,
                 'redirection' => 0
             ));
+
+            // Approach 2: Defer execution to ensure the redirect completes first
+            add_action('shutdown', function() {
+                // Only run if the process is still marked as running but hasn't completed
+                $is_running = get_option(DOOP_PROCESS_OPTION, false);
+                $result = get_option(DOOP_RESULT_OPTION, false);
+
+                if ($is_running && $is_running !== 0 && $result === false) {
+                    $logger = OH_Logger::get_instance();
+                    $logger->log("Executing deferred deletion via shutdown function");
+
+                    try {
+                        $processor = new OH_Deletion_Processor();
+                        $deleted = $processor->delete_old_out_of_stock_products();
+
+                        update_option(DOOP_RESULT_OPTION, $deleted);
+                        update_option(DOOP_PROCESS_OPTION, 0); // Mark as complete
+
+                        $logger->log("Deferred deletion completed. Deleted $deleted products.");
+                    } catch (Exception $e) {
+                        $logger->log("Error in deferred deletion: " . $e->getMessage());
+                    }
+                }
+            });
+
+            // Approach 3: Schedule an option-based fallback that will trigger on next admin page load
+            update_option('oh_doop_need_fallback', time());
         }
 
         // Redirect to the monitoring page with a special parameter
@@ -426,15 +453,11 @@ class OH_Deletion_Plugin {
             return;
         }
 
-        // Check if process is already running properly
+        // Check if process is already running
         $is_running = get_option(DOOP_PROCESS_OPTION, false);
-        $start_time = intval($is_running);
-        $current_time = time();
 
-        // Only run if the process appears to be stuck (started more than 2 minutes ago)
-        if ($start_time > 0 && ($current_time - $start_time) > 120) {
-            $this->logger->log("Fallback AJAX trigger activated - process appears stuck for " .
-                human_time_diff($start_time, $current_time));
+        if ($is_running) {
+            $this->logger->log("AJAX fallback trigger activated for manual deletion");
 
             try {
                 // Run the deletion process directly
@@ -451,8 +474,8 @@ class OH_Deletion_Plugin {
                 wp_send_json_error('Error: ' . $e->getMessage());
             }
         } else {
-            // Process is either not running or started recently
-            wp_send_json_success(array('status' => 'Deletion already in progress or not needed'));
+            // Process is not running
+            wp_send_json_success(array('status' => 'Deletion not needed - no process running'));
         }
 
         die();
