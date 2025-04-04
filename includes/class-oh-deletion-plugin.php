@@ -4,7 +4,7 @@
  * Main plugin class for Delete Old Out-of-Stock Products
  *
  * @package Delete_Old_Outofstock_Products
- * @version 2.4.3
+ * @version 2.5.3
  */
 
 /**
@@ -24,6 +24,7 @@
  *    3.1 Run scheduled deletion
  *    3.2 Handle manual process
  *    3.3 AJAX fallback trigger
+ *    3.4 Admin fallback checker
  */
 
 // Exit if accessed directly.
@@ -117,6 +118,9 @@ class OH_Deletion_Plugin {
         // Add AJAX action for fallback deletion trigger
         add_action('wp_ajax_oh_trigger_deletion', array($this, 'ajax_trigger_deletion'));
         add_action('wp_ajax_nopriv_oh_trigger_deletion', array($this, 'ajax_trigger_deletion'));
+
+        // Add fallback checker on admin init
+        add_action('admin_init', array($this, 'check_fallback_needed'), 5);
     }
 
     // 2. PLUGIN LIFECYCLE
@@ -153,6 +157,7 @@ class OH_Deletion_Plugin {
         delete_option( DOOP_RESULT_OPTION );
         delete_option( 'oh_doop_too_many_products' );
         delete_option( 'oh_doop_manual_process' );
+        delete_option( 'oh_doop_need_fallback' );
 
         $this->logger->log('Plugin activated');
     }
@@ -172,6 +177,7 @@ class OH_Deletion_Plugin {
         delete_option( DOOP_RESULT_OPTION );
         delete_option( 'oh_doop_too_many_products' );
         delete_option( 'oh_doop_manual_process' );
+        delete_option( 'oh_doop_need_fallback' );
         // Don't delete oh_doop_last_cron_time - keep this record even when deactivated
 
         $this->logger->log('Plugin deactivated');
@@ -479,5 +485,43 @@ class OH_Deletion_Plugin {
         }
 
         die();
+    }
+
+    /**
+     * 3.4 Check for fallback deletion requests on admin page loads
+     */
+    public function check_fallback_needed() {
+        // Only run in admin
+        if (!is_admin()) {
+            return;
+        }
+
+        // Check if we have a pending fallback request
+        $fallback_time = get_option('oh_doop_need_fallback', false);
+        if (!$fallback_time) {
+            return;
+        }
+
+        // Remove the flag first to prevent loops
+        delete_option('oh_doop_need_fallback');
+
+        // Check if a process is still running and hasn't completed
+        $is_running = get_option(DOOP_PROCESS_OPTION, false);
+        $result = get_option(DOOP_RESULT_OPTION, false);
+
+        if ($is_running && $is_running !== 0 && $result === false) {
+            $this->logger->log("Executing fallback deletion via admin check (requested at " . date('Y-m-d H:i:s', $fallback_time) . ")");
+
+            try {
+                $deleted = $this->processor->delete_old_out_of_stock_products();
+
+                update_option(DOOP_RESULT_OPTION, $deleted);
+                update_option(DOOP_PROCESS_OPTION, 0); // Mark as complete
+
+                $this->logger->log("Fallback deletion completed. Deleted $deleted products.");
+            } catch (Exception $e) {
+                $this->logger->log("Error in fallback deletion: " . $e->getMessage());
+            }
+        }
     }
 }
